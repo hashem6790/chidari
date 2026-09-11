@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>پیش‌نمایش تغییرات — چی داری؟</title>
+<style>
+  :root{
+    --teal:#00695C; --teal-d:#004D40; --teal-l:#4DB6AC; --amber:#FFA000;
+    --bg:#F8F5F2; --line:#E3DDD6; --muted:#6B6560; --sand:#EFEAE5;
+    --ok:#1B7F4C; --ok-bg:#E6F4EC; --err:#B3261E;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px;background:#EDE8E3;color:#1B1B1B;line-height:1.8;
+       font-family:'Vazirmatn',Tahoma,system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1.page{font-size:22px;margin:0 0 4px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 20px}
+
+  .section{background:#fff;border:1px solid var(--line);border-radius:18px;
+           padding:20px;margin-bottom:20px}
+  .section > h2{margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:8px}
+  .section > .hint{margin:0 0 16px;font-size:12.5px;color:var(--muted)}
+
+  /* ---------- logo picker ---------- */
+  .logos{display:flex;gap:14px;flex-wrap:wrap}
+  .logo-opt{border:2px solid var(--line);border-radius:16px;padding:14px;cursor:pointer;
+            text-align:center;background:#fff;transition:.15s;min-width:150px;flex:1}
+  .logo-opt:hover{border-color:var(--teal-l)}
+  .logo-opt.sel{border-color:var(--teal);background:#F0F7F6;box-shadow:0 0 0 3px #00695c22}
+  .logo-opt .name{font-size:13px;font-weight:600;margin-top:10px}
+  .logo-opt .desc{font-size:11px;color:var(--muted);line-height:1.6}
+  .logo-opt svg{border-radius:22%;display:block;margin:0 auto}
+  .badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;
+         background:var(--ok-bg);color:var(--ok);font-weight:600;margin-top:6px}
+
+  /* ---------- phone ---------- */
+  .phones{display:flex;gap:22px;flex-wrap:wrap;justify-content:center}
+  .phone{width:320px;border:9px solid #222;border-radius:34px;overflow:hidden;
+         background:var(--bg);box-shadow:0 8px 26px #0002;position:relative;flex:0 0 auto}
+  .phone .label{position:absolute;top:-1px;left:50%;transform:translateX(-50%);
+                background:#222;color:#fff;font-size:10px;padding:2px 12px;
+                border-radius:0 0 8px 8px;z-index:20}
+  .screen{height:600px;overflow-y:auto;position:relative;background:var(--bg)}
+  .screen::-webkit-scrollbar{width:0}
+
+  .appbar{background:var(--teal);color:#fff;padding:12px 14px;display:flex;
+          align-items:center;gap:10px;position:sticky;top:0;z-index:10}
+  .appbar .t{font-size:15px;font-weight:bold;flex:1}
+  .icobtn{background:none;border:0;color:#fff;font-size:19px;cursor:pointer;padding:2px 5px;
+          border-radius:8px}
+  .icobtn:hover{background:#ffffff22}
+
+  .hero{background:var(--teal);color:#fff;padding:18px 16px}
+  .avatar{width:58px;height:58px;border-radius:50%;background:#fff;display:flex;
+          align-items:center;justify-content:center;font-size:26px;flex:0 0 58px}
+  .flexrow{display:flex;align-items:center;gap:12px}
+  .uname{font-size:16px;font-weight:bold}
+  .umail{font-size:11.5px;opacity:.85}
+
+  /* stat buttons (new) */
+  .statgrid{display:flex;gap:10px;margin-top:16px}
+  .statbtn{flex:1;background:#fff;border:0;border-radius:14px;padding:13px 8px;
+           text-align:center;cursor:pointer;transition:.15s;font-family:inherit}
+  .statbtn:hover{transform:translateY(-2px);box-shadow:0 4px 12px #0002}
+  .statbtn .ic{font-size:21px}
+  .statbtn .n{font-size:18px;font-weight:bold;color:var(--teal);line-height:1.3}
+  .statbtn .l{font-size:11px;color:var(--muted)}
+  .statbtn.active{background:var(--amber);box-shadow:0 0 0 3px #fff6}
+  .statbtn.active .n,.statbtn.active .l{color:#3E2600}
+
+  .cta{width:100%;margin-top:12px;background:#fff;color:var(--teal);border:0;
+       border-radius:14px;padding:13px;font-weight:bold;font-size:14px;cursor:pointer;
+       font-family:inherit}
+
+  .sechead{display:flex;justify-content:space-between;align-items:center;
+           padding:12px 16px 6px;font-size:14px;font-weight:bold}
+  .sechead .c{font-size:11.5px;color:var(--muted);font-weight:normal}
+
+  .card{background:#fff;border-radius:16px;margin:5px 12px;padding:12px;
+        display:flex;align-items:center;gap:11px;box-shadow:0 1px 3px #0000000d}
+  .card .em{width:46px;height:46px;border-radius:50%;background:#B2DFDB;display:flex;
+            align-items:center;justify-content:center;font-size:21px;flex:0 0 46px}
+  .card .nm{font-size:13.5px;font-weight:600}
+  .card .mt{font-size:11px;color:var(--muted)}
+  .mini{display:flex;gap:6px;margin-top:9px}
+  .mini button{flex:1;padding:7px;border-radius:10px;font-size:11.5px;border:0;
+               background:var(--teal);color:#fff;cursor:pointer;font-family:inherit}
+  .mini button.o{background:#fff;color:var(--teal);border:1.4px solid var(--teal)}
+
+  .empty{text-align:center;padding:44px 26px;color:var(--muted)}
+  .empty .e{font-size:44px}
+  .empty .t{font-size:14px;font-weight:bold;color:#1B1B1B;margin-top:10px}
+  .empty .s{font-size:12px;margin-top:5px;line-height:1.8}
+
+  /* ---------- drawer ---------- */
+  .scrim{position:absolute;inset:0;background:#0007;z-index:30;display:none}
+  .scrim.on{display:block}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:255px;background:#fff;z-index:40;
+          transform:translateX(100%);transition:.24s;display:flex;flex-direction:column;
+          box-shadow:-4px 0 18px #0003}
+  .drawer.on{transform:translateX(0)}
+  .dhead{background:var(--teal);color:#fff;padding:20px 16px}
+  .dlist{flex:1;overflow-y:auto;padding:8px 0}
+  .ditem{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;
+         font-size:13.5px}
+  .ditem:hover{background:var(--sand)}
+  .ditem .ic{font-size:17px;width:23px;text-align:center}
+  .ditem .sw{margin-right:auto;width:38px;height:21px;border-radius:11px;background:#CFC8C1;
+             position:relative;transition:.2s;flex:0 0 38px}
+  .ditem .sw.on{background:var(--teal)}
+  .ditem .sw::after{content:"";position:absolute;top:2.5px;right:2.5px;width:16px;height:16px;
+                    border-radius:50%;background:#fff;transition:.2s}
+  .ditem .sw.on::after{right:19.5px}
+  .ditem .val{margin-right:auto;font-size:11.5px;color:var(--muted)}
+  .dsep{height:1px;background:var(--line);margin:8px 16px}
+  .dtitle{font-size:11px;color:var(--muted);padding:9px 16px 3px;font-weight:600}
+  .ditem.danger{color:var(--err)}
+  .dfoot{padding:11px 16px;font-size:10.5px;color:var(--muted);border-top:1px solid var(--line)}
+
+  /* ---------- follow button (live) ---------- */
+  .followbar{padding:14px 16px;background:var(--teal)}
+  .fbtn{width:100%;padding:12px;border-radius:12px;border:0;font-size:14px;font-weight:bold;
+        cursor:pointer;font-family:inherit;transition:.18s;position:relative;overflow:hidden}
+  .fbtn.no{background:#fff;color:var(--teal)}
+  .fbtn.yes{background:transparent;color:#fff;border:1.6px solid #ffffff99}
+  .fbtn:active{transform:scale(.97)}
+  .fstats{display:flex;gap:14px;margin-top:12px}
+  .fstat{text-align:center;flex:1}
+  .fstat .n{font-size:17px;font-weight:bold;color:#fff;display:block;line-height:1.4}
+  .fstat .n.pop{animation:pop .45s ease}
+  @keyframes pop{0%{transform:scale(1)}35%{transform:scale(1.5);color:var(--amber)}100%{transform:scale(1)}}
+  .fstat .l{font-size:10.5px;color:#ffffffcc}
+
+  .toast{position:absolute;bottom:16px;left:16px;right:16px;background:#2C3136;color:#fff;
+         padding:11px 15px;border-radius:11px;font-size:12.5px;z-index:50;
+         opacity:0;transform:translateY(16px);transition:.25s;pointer-events:none}
+  .toast.on{opacity:1;transform:translateY(0)}
+
+  .bnav{display:flex;background:#fff;border-top:1px solid var(--line);
+        position:sticky;bottom:0;z-index:10}
+  .bnav div{flex:1;text-align:center;padding:8px 0;font-size:10px;color:var(--muted);cursor:pointer}
+  .bnav div.on{color:var(--teal);font-weight:bold}
+  .bnav .i{font-size:17px;display:block}
+
+  .note{background:#FFF4E0;border:1px solid #F0D9A8;color:#8A6100;border-radius:12px;
+        padding:13px 15px;font-size:12.5px;margin-bottom:16px}
+  .cmp{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px}
+  .cmp > div{flex:1;min-width:230px;border-radius:12px;padding:13px}
+  .cmp .old{background:#FDECEA;border:1px solid #F5C6C2}
+  .cmp .new{background:var(--ok-bg);border:1px solid #B8E0C8}
+  .cmp b{display:block;margin-bottom:6px}
+  .cmp ul{margin:0;padding-right:17px;line-height:1.9}
+  .try{font-size:11.5px;color:var(--teal);background:#E0F2F1;border-radius:8px;
+       padding:7px 11px;display:inline-block;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1 class="page">🎨 پیش‌نمایش تغییرات — «چی داری؟»</h1>
+<p class="sub">همه‌چیز تعاملی است؛ دکمه‌ها را بزنید. اگر تأیید کردید، همین را در اپ پیاده می‌کنم.</p>
+
+<!-- ============ ۱ لوگو ============ -->
+<div class="section">
+  <h2>۱ — لوگوی برنامه</h2>
+  <p class="hint">چهار طرح بر پایه‌ی مفهوم «چی داری؟». روی هرکدام بزنید تا انتخاب شود.</p>
+  <div class="logos" id="logos">
+
+    <!-- A: bubble + shop -->
+    <div class="logo-opt sel" data-k="A" onclick="pickLogo(this)">
+      <svg width="96" height="96" viewBox="0 0 108 108">
+  <defs><linearGradient id="gA" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#00897B"/><stop offset="1" stop-color="#00544A"/>
+  </linearGradient></defs>
+  <rect width="108" height="108" fill="url(#gA)"/>
+  <path d="M27 30 h54 a7 7 0 0 1 7 7 v30 a7 7 0 0 1 -7 7 h-27 l-13 12 v-12 h-14 a7 7 0 0 1 -7 -7 v-30 a7 7 0 0 1 7 -7 z" fill="#FFFFFF"/>
+  <path d="M36 45 h36 l3 7 h-42 z" fill="#00695C"/>
+  <rect x="38" y="52" width="32" height="14" fill="#FFCC80"/>
+  <rect x="48" y="56" width="12" height="10" fill="#00695C"/>
+  <circle cx="74" cy="40" r="3.6" fill="#FFA000"/>
+</svg>
+      <div class="name">حباب گفت‌وگو + مغازه</div>
+      <div class="desc">پرسش «چی داری؟» درون حباب چت</div>
+      <span class="badge">پیشنهاد من</span>
+    </div>
+
+    <!-- B: question mark as bag -->
+    <div class="logo-opt" data-k="B" onclick="pickLogo(this)">
+      <svg width="96" height="96" viewBox="0 0 108 108">
+  <defs><linearGradient id="gB" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#00897B"/><stop offset="1" stop-color="#00544A"/>
+  </linearGradient></defs>
+  <rect width="108" height="108" fill="url(#gB)"/>
+  <path d="M42 43 v-6 a12 12 0 0 1 24 0 v6" stroke="#FFCC80" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+  <path d="M31 43 h46 l-4 41 a5 5 0 0 1 -5 4.5 h-28 a5 5 0 0 1 -5 -4.5 z" fill="#FFFFFF"/>
+  <path fill="#00695C" transform="translate(54,66) scale(0.62)" d="M -13,-19 c 0,-9 7,-15 15,-15 c 9,0 15,6 15,14 c 0,7 -4,11 -9,14 c -4,3 -6,5 -6,9 l 0,4 l -10,0 l 0,-5 c 0,-7 3,-11 8,-15 c 4,-3 6,-5 6,-8 c 0,-4 -3,-6 -6,-6 c -4,0 -6,3 -6,7 z"/>
+  <circle fill="#00695C" transform="translate(54,66) scale(0.62)" cx="-2" cy="22" r="6"/>
+</svg>
+      <div class="name">ساک خرید + علامت سؤال</div>
+      <div class="desc">ساده و نمادین، خوانا در اندازه کوچک</div>
+    </div>
+
+    <!-- C: pin + question -->
+    <div class="logo-opt" data-k="C" onclick="pickLogo(this)">
+      <svg width="96" height="96" viewBox="0 0 108 108">
+  <defs><linearGradient id="gC" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#00897B"/><stop offset="1" stop-color="#00544A"/>
+  </linearGradient></defs>
+  <rect width="108" height="108" fill="url(#gC)"/>
+  <ellipse cx="54" cy="93" rx="12" ry="3" fill="#00000018"/>
+  <path d="M54 18 a24 24 0 0 1 24 24 c0 18 -24 44 -24 44 s-24 -26 -24 -44 a24 24 0 0 1 24 -24 z" fill="#FFFFFF"/>
+  <path fill="#00695C" transform="translate(54,43) scale(0.62)" d="M -13,-19 c 0,-9 7,-15 15,-15 c 9,0 15,6 15,14 c 0,7 -4,11 -9,14 c -4,3 -6,5 -6,9 l 0,4 l -10,0 l 0,-5 c 0,-7 3,-11 8,-15 c 4,-3 6,-5 6,-8 c 0,-4 -3,-6 -6,-6 c -4,0 -6,3 -6,7 z"/>
+  <circle fill="#00695C" transform="translate(54,43) scale(0.62)" cx="-2" cy="22" r="6"/>
+</svg>
+      <div class="name">نشانگر مکان + سؤال</div>
+      <div class="desc">تأکید بر «نزدیک من» — هویت اصلی اپ</div>
+    </div>
+
+    <!-- D: awning + question -->
+    <div class="logo-opt" data-k="D" onclick="pickLogo(this)">
+      <svg width="96" height="96" viewBox="0 0 108 108">
+  <defs><linearGradient id="gD" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#00897B"/><stop offset="1" stop-color="#00544A"/>
+  </linearGradient></defs>
+  <rect width="108" height="108" fill="url(#gD)"/>
+  <rect x="26" y="60" width="56" height="30" rx="5" fill="#FFFFFF"/>
+  <path fill="#00695C" transform="translate(54,75) scale(0.52)" d="M -13,-19 c 0,-9 7,-15 15,-15 c 9,0 15,6 15,14 c 0,7 -4,11 -9,14 c -4,3 -6,5 -6,9 l 0,4 l -10,0 l 0,-5 c 0,-7 3,-11 8,-15 c 4,-3 6,-5 6,-8 c 0,-4 -3,-6 -6,-6 c -4,0 -6,3 -6,7 z"/>
+  <circle fill="#00695C" transform="translate(54,75) scale(0.52)" cx="-2" cy="22" r="6"/>
+  <path d="M18 26 h72 v13 h-72 z" fill="#FFFFFF"/>
+  <path d="M18 39 h12 v8.5 a6 6 0 0 1 -12 0 z" fill="#FFA000"/>
+  <path d="M42 39 h12 v8.5 a6 6 0 0 1 -12 0 z" fill="#FFA000"/>
+  <path d="M66 39 h12 v8.5 a6 6 0 0 1 -12 0 z" fill="#FFA000"/>
+</svg>
+      <div class="name">سایبان مغازه + سؤال</div>
+      <div class="desc">نزدیک به لوگوی فعلی، ولی مدرن‌تر</div>
+    </div>
+  </div>
+  <div id="logoPick" style="margin-top:14px;font-size:13px;color:var(--teal);font-weight:600">
+    انتخاب فعلی: <b>A — حباب گفت‌وگو + مغازه</b>
+  </div>
+</div>
+
+<!-- ============ ۲ فالو زنده ============ -->
+<div class="section">
+  <h2>۲ — فالو کردن زنده</h2>
+  <p class="hint">دکمه فوراً عوض می‌شود و شمارنده با انیمیشن بالا می‌رود — بدون منتظر ماندن برای سرور.</p>
+  <div class="cmp" style="margin-bottom:16px">
+    <div class="old"><b>❌ الان</b><ul>
+      <li>فقط یک پیام پایین صفحه</li><li>شمارنده تا رفرش عوض نمی‌شود</li>
+      <li>معلوم نیست ثبت شد یا نه</li></ul></div>
+    <div class="new"><b>✅ بعد از تغییر</b><ul>
+      <li>دکمه بی‌درنگ «✓ دنبال می‌کنید» می‌شود</li>
+      <li>عدد با انیمیشن بالا می‌رود</li>
+      <li>اگر سرور خطا داد، برمی‌گردد عقب</li></ul></div>
+  </div>
+  <div class="try">👆 دکمه «دنبال کردن» را چند بار بزنید</div>
+  <div class="phones">
+    <div class="phone">
+      <span class="label">صفحه فروشگاه</span>
+      <div class="screen">
+        <div class="appbar"><span class="icobtn">→</span><span class="t">سوپرمارکت بهار</span>
+             <span class="icobtn">♡</span></div>
+        <div class="hero">
+          <div class="flexrow">
+            <div class="avatar">🛒</div>
+            <div style="flex:1">
+              <div class="uname">سوپرمارکت بهار</div>
+              <div class="umail">سوپرمارکت و خواربار</div>
+            </div>
+          </div>
+          <div class="fstats">
+            <div class="fstat"><span class="n">۲۴</span><span class="l">محصول</span></div>
+            <div class="fstat"><span class="n" id="fcount">۱۲۷</span><span class="l">دنبال‌کننده</span></div>
+            <div class="fstat"><span class="n">۴٫۳</span><span class="l">امتیاز</span></div>
+          </div>
+        </div>
+        <div class="followbar">
+          <button class="fbtn no" id="fbtn" onclick="toggleFollow()">+ دنبال کردن</button>
+        </div>
+        <div class="sechead">محصولات و خدمات <span class="c">۲۴ مورد</span></div>
+        <div class="card"><div class="em">🥛</div><div style="flex:1">
+          <div class="nm">شیر پرچرب ۱ لیتری</div><div class="mt">۳۲٬۰۰۰ تومان / عدد</div></div></div>
+        <div class="card"><div class="em">🍚</div><div style="flex:1">
+          <div class="nm">برنج طارم درجه یک</div><div class="mt">۸۹۰٬۰۰۰ تومان / کیلوگرم</div></div></div>
+        <div class="toast" id="ftoast"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ۳+۴+۵ حساب من و منو ============ -->
+<div class="section">
+  <h2>۳ و ۴ و ۵ — حساب من، منوی همبرگری و تنظیمات</h2>
+  <p class="hint">دو دکمه‌ی «فروشگاه‌های من» و «دنبال‌شده‌ها»، و انتقال «خروج» به منوی کشویی.</p>
+  <div class="try">👆 روی دکمه‌ها بزنید و آیکون ☰ بالا سمت راست را باز کنید</div>
+
+  <div class="phones">
+    <!-- حساب من -->
+    <div class="phone">
+      <span class="label">حساب من</span>
+      <div class="screen" id="scr">
+        <div class="appbar">
+          <span class="t">حساب من</span>
+          <button class="icobtn" onclick="openDrawer()">☰</button>
+        </div>
+
+        <div class="hero">
+          <div class="flexrow">
+            <div class="avatar">👤</div>
+            <div style="flex:1">
+              <div class="uname">هاشم</div>
+              <div class="umail">hashem6790@gmail.com</div>
+            </div>
+          </div>
+
+          <!-- دکمه‌های جدید -->
+          <div class="statgrid">
+            <button class="statbtn active" id="tabMine" onclick="showTab('mine')">
+              <div class="ic">🏪</div><div class="n">۲</div><div class="l">فروشگاه‌های من</div>
+            </button>
+            <button class="statbtn" id="tabFollow" onclick="showTab('follow')">
+              <div class="ic">➕</div><div class="n">۵</div><div class="l">دنبال‌شده‌ها</div>
+            </button>
+          </div>
+
+          <button class="cta" onclick="toast('صفحه ثبت فروشگاه باز می‌شود')">＋ ثبت فروشگاه جدید</button>
+        </div>
+
+        <!-- فروشگاه‌های من -->
+        <div id="paneMine">
+          <div class="sechead">فروشگاه‌های من <span class="c">۲ فروشگاه</span></div>
+          <div class="card" style="display:block">
+            <div class="flexrow"><div class="em">🛒</div><div style="flex:1">
+              <div class="nm">سوپرمارکت بهار</div>
+              <div class="mt">سوپرمارکت • تهران ⭐ ۴٫۳</div></div></div>
+            <div class="mini"><button>＋ محصول</button><button class="o">ویرایش</button></div>
+          </div>
+          <div class="card" style="display:block">
+            <div class="flexrow"><div class="em">☕</div><div style="flex:1">
+              <div class="nm">کافه یاس</div>
+              <div class="mt">کافه • تهران ⭐ ۴٫۷</div></div></div>
+            <div class="mini"><button>＋ محصول</button><button class="o">ویرایش</button></div>
+          </div>
+        </div>
+
+        <!-- دنبال‌شده‌ها -->
+        <div id="paneFollow" style="display:none">
+          <div class="sechead">فروشگاه‌هایی که دنبال می‌کنید <span class="c">۵ مورد</span></div>
+          <div class="card"><div class="em">🥖</div><div style="flex:1">
+            <div class="nm">نانوایی سنتی مهر</div><div class="mt">نانوایی • تهران</div></div>
+            <div style="font-size:11px;color:var(--teal)">✓</div></div>
+          <div class="card"><div class="em">🍎</div><div style="flex:1">
+            <div class="nm">میوه‌سرای آفتاب</div><div class="mt">میوه و تره‌بار • تهران</div></div>
+            <div style="font-size:11px;color:var(--teal)">✓</div></div>
+          <div class="card"><div class="em">🥩</div><div style="flex:1">
+            <div class="nm">قصابی پارسیان</div><div class="mt">قصابی • تهران</div></div>
+            <div style="font-size:11px;color:var(--teal)">✓</div></div>
+          <div class="card"><div class="em">📱</div><div style="flex:1">
+            <div class="nm">موبایل کیان</div><div class="mt">موبایل • تهران</div></div>
+            <div style="font-size:11px;color:var(--teal)">✓</div></div>
+          <div class="card"><div class="em">💊</div><div style="flex:1">
+            <div class="nm">داروخانه نور</div><div class="mt">داروخانه • تهران</div></div>
+            <div style="font-size:11px;color:var(--teal)">✓</div></div>
+        </div>
+
+        <div style="height:14px"></div>
+        <div class="bnav">
+          <div><span class="i">🏪</span>فروشگاه‌ها</div>
+          <div><span class="i">🔎</span>محصولات</div>
+          <div><span class="i">🤍</span>علاقه‌مندی</div>
+          <div class="on"><span class="i">👤</span>حساب من</div>
+        </div>
+
+        <!-- drawer -->
+        <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+        <div class="drawer" id="drawer">
+          <div class="dhead">
+            <div class="flexrow">
+              <div class="avatar" style="width:44px;height:44px;flex:0 0 44px;font-size:20px">👤</div>
+              <div><div style="font-size:14px;font-weight:bold">هاشم</div>
+                   <div style="font-size:10.5px;opacity:.85">hashem6790@gmail.com</div></div>
+            </div>
+          </div>
+          <div class="dlist">
+            <div class="dtitle">موقعیت</div>
+            <div class="ditem" onclick="toast('صفحه انتخاب استان و شهر')">
+              <span class="ic">📍</span><span>تغییر شهر</span><span class="val">تهران</span></div>
+            <div class="ditem" onclick="toast('در حال یافتن موقعیت با GPS…')">
+              <span class="ic">🎯</span><span>یافتن موقعیت با GPS</span></div>
+
+            <div class="dsep"></div>
+            <div class="dtitle">نمایش</div>
+            <div class="ditem" onclick="sw(this)">
+              <span class="ic">🌙</span><span>حالت تیره</span><span class="sw"></span></div>
+            <div class="ditem" onclick="toast('واحد فاصله: کیلومتر / متر')">
+              <span class="ic">📏</span><span>واحد فاصله</span><span class="val">کیلومتر</span></div>
+
+            <div class="dsep"></div>
+            <div class="dtitle">داده‌ها</div>
+            <div class="ditem" onclick="toast('در حال به‌روزرسانی از سرور…')">
+              <span class="ic">🔄</span><span>به‌روزرسانی داده‌ها</span></div>
+            <div class="ditem" onclick="sw(this)">
+              <span class="ic">📶</span><span>همگام‌سازی خودکار</span><span class="sw on"></span></div>
+            <div class="ditem" onclick="toast('حافظه پنهان پاک شد')">
+              <span class="ic">🗑️</span><span>پاک کردن حافظه پنهان</span><span class="val">۴٫۲ م‌ب</span></div>
+
+            <div class="dsep"></div>
+            <div class="dtitle">درباره</div>
+            <div class="ditem" onclick="toast('راهنمای استفاده')">
+              <span class="ic">❓</span><span>راهنما</span></div>
+            <div class="ditem" onclick="toast('اشتراک‌گذاری برنامه')">
+              <span class="ic">📤</span><span>معرفی به دوستان</span></div>
+            <div class="ditem" onclick="toast('نسخه ۱٫۳')">
+              <span class="ic">ℹ️</span><span>درباره برنامه</span><span class="val">۱٫۳</span></div>
+
+            <div class="dsep"></div>
+            <!-- خروج اینجا منتقل شد -->
+            <div class="ditem danger" onclick="toast('پنجره تأیید خروج باز می‌شود')">
+              <span class="ic">🚪</span><span>خروج از حساب</span></div>
+          </div>
+          <div class="dfoot">چی داری؟ — نسخه ۱٫۳</div>
+        </div>
+
+        <div class="toast" id="toast"></div>
+      </div>
+    </div>
+
+    <!-- حالت مهمان -->
+    <div class="phone">
+      <span class="label">حالت مهمان (وارد نشده)</span>
+      <div class="screen">
+        <div class="appbar"><span class="t">حساب من</span>
+             <button class="icobtn" onclick="toast('منو برای مهمان: تنظیمات دارد ولی خروج ندارد')">☰</button></div>
+        <div class="hero" style="text-align:center;padding:26px 16px">
+          <div style="font-size:46px">👤</div>
+          <div class="uname" style="margin-top:8px">وارد نشده‌اید</div>
+          <div class="umail" style="margin-top:5px">
+            گشت‌وگذار آزاد است. برای امکانات شخصی وارد شوید.</div>
+          <button class="cta" onclick="toast('صفحه ورود باز می‌شود')">ورود یا ثبت‌نام با ایمیل</button>
+        </div>
+        <div class="empty">
+          <div class="e">🔐</div>
+          <div class="t">با ساختن حساب می‌توانید:</div>
+          <div class="s" style="text-align:right;padding:0 12px;margin-top:12px">
+            ❤️ علاقه‌مندی ذخیره کنید<br>
+            ➕ فروشگاه‌ها را دنبال کنید<br>
+            🏪 فروشگاه خودتان را بسازید<br>
+            ⭐ امتیاز بدهید
+          </div>
+        </div>
+        <div class="bnav">
+          <div><span class="i">🏪</span>فروشگاه‌ها</div>
+          <div><span class="i">🔎</span>محصولات</div>
+          <div><span class="i">🤍</span>علاقه‌مندی</div>
+          <div class="on"><span class="i">👤</span>حساب من</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:18px">
+    <b>نکته درباره منو:</b> برای کاربر مهمان، منو باز می‌شود ولی «خروج از حساب» ندارد —
+    به‌جایش دکمه «ورود» نشان داده می‌شود. تنظیمات (موقعیت، حالت تیره، راهنما) برای همه در دسترس است.
+  </div>
+</div>
+
+</div>
+<script>
+const faN = n => String(n).replace(/\d/g,d=>"۰۱۲۳۴۵۶۷۸۹"[d]);
+
+/* لوگو */
+function pickLogo(el){
+  document.querySelectorAll('.logo-opt').forEach(o=>o.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('logoPick').innerHTML =
+    "انتخاب فعلی: <b>"+el.dataset.k+" — "+el.querySelector('.name').textContent+"</b>";
+}
+
+/* فالو زنده */
+let following=false, count=127;
+function toggleFollow(){
+  following=!following;
+  count += following?1:-1;
+  const b=document.getElementById('fbtn'), c=document.getElementById('fcount');
+  b.className = "fbtn "+(following?"yes":"no");
+  b.textContent = following?"✓ دنبال می‌کنید":"+ دنبال کردن";
+  c.textContent = faN(count);
+  c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop');
+  showToast('ftoast', following?"✓ فروشگاه دنبال شد":"دنبال کردن لغو شد");
+}
+
+/* تب‌های حساب من */
+function showTab(w){
+  const m=w==='mine';
+  document.getElementById('paneMine').style.display   = m?'block':'none';
+  document.getElementById('paneFollow').style.display = m?'none':'block';
+  document.getElementById('tabMine').classList.toggle('active', m);
+  document.getElementById('tabFollow').classList.toggle('active', !m);
+}
+
+/* منوی کشویی */
+function openDrawer(){
+  document.getElementById('drawer').classList.add('on');
+  document.getElementById('scrim').classList.add('on');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('on');
+  document.getElementById('scrim').classList.remove('on');
+}
+function sw(el){ el.querySelector('.sw').classList.toggle('on'); }
+
+/* توست */
+let tmr;
+function showToast(id,msg){
+  const t=document.getElementById(id);
+  t.textContent=msg; t.classList.add('on');
+  clearTimeout(tmr); tmr=setTimeout(()=>t.classList.remove('on'),1900);
+}
+function toast(msg){ showToast('toast',msg); }
+</script>
+</body>
+</html>

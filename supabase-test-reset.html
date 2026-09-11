@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تست بازیابی رمز عبور — چی داری؟</title>
+<style>
+  :root{--teal:#00695C;--teal-d:#004D40;--bg:#F8F5F2;--line:#E3DDD6;--muted:#6B6560;
+        --ok:#1B7F4C;--ok-bg:#E6F4EC;--err:#B3261E;--err-bg:#FDECEA;--warn:#8A6100;--warn-bg:#FFF4E0}
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px;background:var(--bg);color:#1B1B1B;line-height:1.8;
+       font-family:'Vazirmatn',Tahoma,system-ui,sans-serif}
+  .wrap{max-width:640px;margin:0 auto}
+  header{background:var(--teal);color:#fff;border-radius:18px;padding:22px;margin-bottom:16px}
+  header h1{margin:0 0 6px;font-size:22px}
+  header p{margin:0;opacity:.9;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;
+        position:relative}
+  .card.done{border-color:#B8E0C8;background:#FBFEFC}
+  .card.locked{opacity:.55}
+  .card h2{margin:0 0 4px;font-size:16px;display:flex;align-items:center;gap:8px}
+  .num{background:var(--teal);color:#fff;width:26px;height:26px;border-radius:50%;
+       display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:0 0 26px}
+  .card.done .num{background:var(--ok)}
+  .hint{margin:0 0 14px;font-size:12px;color:var(--muted)}
+  label{display:block;font-size:13px;margin:10px 0 4px;font-weight:500}
+  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+        font-family:inherit;font-size:14px;background:#fff}
+  input:disabled{background:#F4F1EE;color:var(--muted)}
+  input[dir=ltr]{direction:ltr;text-align:left}
+  .code-in{text-align:center!important;font-size:22px;letter-spacing:6px;font-weight:bold}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  button{flex:1;min-width:130px;padding:12px 14px;border:0;border-radius:12px;background:var(--teal);
+         color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+  button:hover:not(:disabled){background:var(--teal-d)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.ghost{background:#fff;color:var(--teal);border:1.5px solid var(--teal)}
+  .res{margin-top:14px;padding:13px 15px;border-radius:12px;font-size:13.5px;display:none;
+       white-space:pre-wrap;word-break:break-word}
+  .res.show{display:block}
+  .res.ok{background:var(--ok-bg);color:var(--ok);border:1px solid #B8E0C8}
+  .res.err{background:var(--err-bg);color:var(--err);border:1px solid #F5C6C2}
+  .res.warn{background:var(--warn-bg);color:var(--warn);border:1px solid #F0D9A8}
+  .res.info{background:#EAF2FB;color:#1A4F8A;border:1px solid #C2DAF2}
+  .res b{display:block;margin-bottom:4px;font-size:14.5px}
+  details{margin-top:9px}
+  summary{cursor:pointer;font-size:12px;opacity:.75}
+  pre{direction:ltr;text-align:left;background:#1E2227;color:#D6E0EA;padding:11px;border-radius:9px;
+      overflow-x:auto;font-size:11.5px;margin:7px 0 0;line-height:1.55}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff6;border-top-color:#fff;
+        border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-left:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  code{background:#EFEAE5;padding:1px 6px;border-radius:5px;font-size:12px;direction:ltr;display:inline-block}
+  .note{background:var(--warn-bg);border:1px solid #F0D9A8;color:var(--warn);border-radius:12px;
+        padding:13px 15px;font-size:12.5px;margin-bottom:14px}
+  .flow{background:#EAF2FB;border:1px solid #C2DAF2;color:#1A4F8A;border-radius:12px;
+        padding:14px 16px;font-size:12.5px;margin-bottom:14px;line-height:2}
+  .pill{display:inline-block;background:#fff;border:1px solid #C2DAF2;border-radius:8px;
+        padding:2px 9px;margin:2px;font-size:12px}
+  .meter{height:5px;border-radius:3px;background:var(--line);margin-top:7px;overflow:hidden}
+  .meter div{height:100%;width:0;transition:.25s}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🔑 تست بازیابی رمز عبور</h1>
+  <p>وارد کردن کد ایمیل و تعیین رمز تازه — بدون نیاز به لینک</p>
+</header>
+
+<div class="flow">
+  <b>جریان کار:</b><br>
+  <span class="pill">۱ ارسال کد به ایمیل</span> ←
+  <span class="pill">۲ تأیید کد و گرفتن نشست موقت</span> ←
+  <span class="pill">۳ ثبت رمز جدید</span> ←
+  <span class="pill">۴ ورود با رمز جدید</span>
+</div>
+
+<div class="note">
+  <b>پیش‌نیاز:</b> قالب <b>Reset password</b> در Supabase باید
+  <code>{{ .Token }}</code> داشته باشد تا کد در ایمیل دیده شود.
+  حسابی که تست می‌کنید باید از قبل <b>تأییدشده</b> باشد.
+</div>
+
+<!-- ۱ -->
+<div class="card" id="c1">
+  <h2><span class="num">۱</span> ارسال کد بازیابی</h2>
+  <p class="hint">ایمیل حسابی که رمزش را فراموش کرده‌اید وارد کنید.</p>
+  <label>ایمیل</label>
+  <input id="email" type="email" dir="ltr" placeholder="you@gmail.com">
+  <div class="row"><button onclick="sendCode()">ارسال کد به ایمیل</button></div>
+  <div id="r1" class="res"></div>
+</div>
+
+<!-- ۲ -->
+<div class="card locked" id="c2">
+  <h2><span class="num">۲</span> تأیید کد</h2>
+  <p class="hint">کد داخل ایمیل را وارد کنید — هر طولی باشد (۶ یا ۸ رقم) پذیرفته می‌شود.</p>
+  <label>کد بازیابی</label>
+  <input id="code" class="code-in" dir="ltr" maxlength="10" placeholder="········" disabled>
+  <div class="row">
+    <button id="bVerify" onclick="verifyCode()" disabled>تأیید کد</button>
+    <button class="ghost" id="bResend" onclick="sendCode()" disabled>ارسال دوباره</button>
+  </div>
+  <div id="r2" class="res"></div>
+</div>
+
+<!-- ۳ -->
+<div class="card locked" id="c3">
+  <h2><span class="num">۳</span> رمز جدید</h2>
+  <p class="hint">رمز تازه‌ای انتخاب کنید (حداقل ۶ نویسه).</p>
+  <label>رمز جدید</label>
+  <input id="pass1" type="text" dir="ltr" placeholder="رمز تازه" disabled oninput="checkPass()">
+  <div class="meter"><div id="meter"></div></div>
+  <label>تکرار رمز جدید</label>
+  <input id="pass2" type="text" dir="ltr" placeholder="دوباره بنویسید" disabled oninput="checkPass()">
+  <div class="row"><button id="bSave" onclick="savePassword()" disabled>ثبت رمز جدید</button></div>
+  <div id="r3" class="res"></div>
+</div>
+
+<!-- ۴ -->
+<div class="card locked" id="c4">
+  <h2><span class="num">۴</span> آزمایش نهایی</h2>
+  <p class="hint">با رمز جدید وارد می‌شویم تا مطمئن شویم واقعاً تغییر کرده.</p>
+  <div class="row"><button id="bLogin" onclick="testLogin()" disabled>ورود با رمز جدید</button></div>
+  <div id="r4" class="res"></div>
+</div>
+
+</div>
+<script>
+  <!-- ⚠️ پیش از استفاده: دو مقدار زیر را با کلیدهای پروژه خود جایگزین کنید -->
+const U="https://YOUR-PROJECT-ID.supabase.co";
+const K="YOUR-ANON-PUBLIC-KEY";
+
+let RECOVERY_TOKEN=null;   // نشست موقتی که پس از تأیید کد می‌گیریم
+let SAVED_PASS=null;
+
+const $=id=>document.getElementById(id);
+const val=id=>$(id).value.trim();
+
+function show(id,cls,t,b,raw){
+  const e=$(id); e.className="res show "+cls;
+  e.innerHTML=`<b>${t}</b>${b||""}`+(raw!==undefined&&raw!==null?
+    `<details><summary>پاسخ خام سرور</summary><pre>${
+      JSON.stringify(raw,null,2).replace(/</g,"&lt;")}</pre></details>`:"");
+}
+function busy(id,t){const e=$(id);e.className="res show info";e.innerHTML=`<b>${t}<span class="spin"></span></b>`}
+function unlock(card,...ids){$(card).classList.remove("locked");ids.forEach(i=>$(i).disabled=false)}
+function markDone(card){$(card).classList.add("done")}
+
+// method را صریح می‌گیریم؛ تغییر رمز حتماً باید PUT باشد
+async function api(path,body,token,method){
+  const h={apikey:K,"Content-Type":"application/json"};
+  h["Authorization"]="Bearer "+(token||K);
+  const r=await fetch(U+"/auth/v1"+path,
+    {method:method||(body?"POST":"GET"),headers:h,
+     body:body?JSON.stringify(body):undefined});
+  let j=null; const txt=await r.text();
+  try{j=txt?JSON.parse(txt):null}catch(e){j={raw:txt}}
+  return {ok:r.ok,code:r.status,j};
+}
+const errOf=j=>(j&&(j.msg||j.error_description||j.message||j.error))||"";
+
+// ---------- ۱ ----------
+async function sendCode(){
+  const email=val("email");
+  if(!email){show("r1","err","ایمیل را وارد کنید","");return}
+  busy("r1","در حال ارسال کد…");
+  const {ok,code,j}=await api("/recover",{email});
+  if(!ok){
+    const m=errOf(j).toLowerCase();
+    show("r1","err","❌ "+(m.includes("rate")||code===429
+      ?"تعداد درخواست‌ها زیاد بود — چند دقیقه صبر کنید"
+      :m.includes("error sending")?"ارسال ایمیل ناموفق — تنظیمات SMTP را بررسی کنید"
+      :(errOf(j)||"ارسال ناموفق (کد "+code+")")),"",j);
+    return;
+  }
+  markDone("c1");
+  unlock("c2","code","bVerify","bResend");
+  $("code").focus();
+  show("r1","ok","✅ کد ارسال شد",
+    `<div style="margin-top:8px">ایمیل <b>${email}</b> را باز کنید و کد را در مرحله ۲ وارد کنید.<br>
+     پوشه اسپم را هم ببینید.<br><br>
+     <b>اگر در ایمیل کد نبود و فقط لینک بود</b>، یعنی قالب
+     <code>Reset password</code> هنوز عوض نشده است.</div>`,j);
+}
+
+// ---------- ۲ ----------
+async function verifyCode(){
+  const email=val("email");
+  const code=$("code").value.replace(/[^\d]/g,"");
+  if(code.length<6){show("r2","err","کد را کامل وارد کنید (حداقل ۶ رقم)","");return}
+  busy("r2","در حال تأیید کد…");
+
+  const {ok,code:st,j}=await api("/verify",{type:"recovery",email,token:code});
+  if(!ok||!j||!j.access_token){
+    const m=errOf(j).toLowerCase();
+    show("r2","err","❌ "+(m.includes("expired")||m.includes("invalid")
+      ?"کد اشتباه است یا منقضی شده — «ارسال دوباره» را بزنید"
+      :(errOf(j)||"تأیید ناموفق (کد "+st+")")),"",j);
+    return;
+  }
+  RECOVERY_TOKEN=j.access_token;
+  markDone("c2");
+  unlock("c3","pass1","pass2");
+  $("pass1").focus();
+  show("r2","ok","✅ کد درست بود — نشست موقت گرفته شد",
+    `<div style="margin-top:8px">
+      کاربر: <b>${j.user?.email||"—"}</b><br>
+      حالا در مرحله ۳ رمز تازه بگذارید.<br>
+      <span style="font-size:12px;opacity:.8">این نشست فقط برای تغییر رمز است و کوتاه‌مدت اعتبار دارد.</span>
+     </div>`,{access_token:j.access_token.slice(0,24)+"…",user:j.user});
+}
+
+// ---------- ۳ ----------
+function checkPass(){
+  const p1=$("pass1").value,p2=$("pass2").value;
+  const m=$("meter");
+  let score=0;
+  if(p1.length>=6)score++;
+  if(p1.length>=10)score++;
+  if(/[A-Za-z]/.test(p1)&&/\d/.test(p1))score++;
+  const colors=["#B3261E","#FFA000","#1B7F4C","#1B7F4C"];
+  m.style.width=(score/3*100)+"%";
+  m.style.background=colors[score]||"#B3261E";
+  $("bSave").disabled=!(p1.length>=6&&p1===p2);
+}
+
+async function savePassword(){
+  const p1=$("pass1").value,p2=$("pass2").value;
+  if(p1.length<6){show("r3","err","رمز باید حداقل ۶ نویسه باشد","");return}
+  if(p1!==p2){show("r3","err","دو رمز یکسان نیستند","");return}
+  if(!RECOVERY_TOKEN){show("r3","err","اول کد را تأیید کنید","");return}
+
+  busy("r3","در حال ثبت رمز جدید…");
+  // با نشست موقت، رمز کاربر را عوض می‌کنیم
+  const {ok,code,j}=await api("/user",{password:p1},RECOVERY_TOKEN,"PUT");
+  if(!ok){
+    const m=errOf(j).toLowerCase();
+    show("r3","err","❌ "+(m.includes("should be at least")?"رمز عبور خیلی کوتاه است":
+      m.includes("same as the old")||m.includes("different from the old")
+        ?"رمز جدید نباید با رمز قبلی یکی باشد"
+      :m.includes("expired")||code===401
+        ?"نشست منقضی شد — از مرحله ۱ دوباره شروع کنید"
+      :(errOf(j)||"ثبت ناموفق (کد "+code+")")),"",j);
+    return;
+  }
+  SAVED_PASS=p1;
+  markDone("c3");
+  unlock("c4","bLogin");
+  show("r3","ok","🎉 رمز عبور با موفقیت تغییر کرد",
+    "<div style='margin-top:8px'>حالا در مرحله ۴ با رمز جدید وارد شوید تا مطمئن شویم.</div>",j);
+}
+
+// ---------- ۴ ----------
+async function testLogin(){
+  const email=val("email");
+  if(!SAVED_PASS){show("r4","err","اول رمز جدید را ثبت کنید","");return}
+  busy("r4","در حال ورود با رمز جدید…");
+  const {ok,code,j}=await api("/token?grant_type=password",{email,password:SAVED_PASS});
+  if(ok&&j.access_token){
+    markDone("c4");
+    show("r4","ok","🎉 عالی — همه‌چیز درست کار می‌کند!",
+      `<div style="margin-top:8px;line-height:2">
+        ✅ کد بازیابی ارسال شد<br>
+        ✅ کد تأیید شد<br>
+        ✅ رمز تغییر کرد<br>
+        ✅ ورود با رمز جدید موفق بود<br><br>
+        <b>شناسه کاربر:</b> <code>${(j.user?.id||"").slice(0,8)}…</code><br>
+        <b>رمز فعلی شما:</b> <code>${SAVED_PASS}</code> (یادداشتش کنید)<br><br>
+        این دقیقاً همان جریانی است که در اپ اندروید پیاده می‌شود.
+       </div>`);
+  }else{
+    show("r4","err","❌ ورود ناموفق — "+(errOf(j)||"کد "+code),
+      "<div style='margin-top:8px'>یعنی تغییر رمز کامل نشده است.</div>",j);
+  }
+}
+
+// Enter → مرحله بعد
+$("email").addEventListener("keydown",e=>{if(e.key==="Enter")sendCode()});
+$("code").addEventListener("keydown",e=>{if(e.key==="Enter")verifyCode()});
+$("pass2").addEventListener("keydown",e=>{if(e.key==="Enter"&&!$("bSave").disabled)savePassword()});
+</script>
+</body>
+</html>

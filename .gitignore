@@ -1,0 +1,39 @@
+# ---------- Android / Gradle ----------
+*.iml
+.gradle/
+/build
+/captures
+.externalNativeBuild
+.cxx
+app/build/
+build/
+
+# ---------- IDE ----------
+/.idea
+.idea/
+*.hprof
+
+# ---------- سیستم‌عامل ----------
+.DS_Store
+Thumbs.db
+
+# ---------- 🔑 اسرار: هرگز commit نشوند ----------
+# مسیر SDK مخصوص هر کامپیوتر است
+local.properties
+/local.properties
+
+# کلیدهای Supabase — از secrets.properties خوانده می‌شوند
+secrets.properties
+/secrets.properties
+
+# کلیدهای امضای اپ
+*.jks
+*.keystore
+keystore.properties
+
+# ---------- خروجی‌های ساخت ----------
+# فایل نصبی را در Releases بگذارید، نه در تاریخچه گیت
+*.apk
+*.aab
+*.ap_
+*.dex

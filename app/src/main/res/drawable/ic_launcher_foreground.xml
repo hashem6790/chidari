@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    لوگوی «چی داری؟» — حباب گفت‌وگو با مغازه‌ای درون آن.
+    لایه پیش‌زمینه آیکون تطبیقی: محتوا در ۶۶٪ میانی نگه داشته شده
+    تا هنگام برش دایره‌ای یا گرد توسط لانچر، چیزی قطع نشود.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- حباب گفت‌وگو (پرسش «چی داری؟») -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M31,34 h46 a7,7 0 0 1 7,7 v26 a7,7 0 0 1 -7,7 h-23 l-11,10 v-10 h-12 a7,7 0 0 1 -7,-7 v-26 a7,7 0 0 1 7,-7 z" />
+
+    <!-- سایبان مغازه -->
+    <path
+        android:fillColor="#00695C"
+        android:pathData="M39,47 h30 l2.5,6 h-35 z" />
+
+    <!-- بدنه مغازه -->
+    <path
+        android:fillColor="#FFCC80"
+        android:pathData="M41,53 h26 v12 h-26 z" />
+
+    <!-- در ورودی -->
+    <path
+        android:fillColor="#00695C"
+        android:pathData="M49,57 h10 v8 h-10 z" />
+
+    <!-- نشان کوچک کهربایی: علامت فعال بودن / تازگی -->
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M74,43 m-3.4,0 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0" />
+</vector>

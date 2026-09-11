@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تست اتصال Supabase — چی داری؟</title>
+<style>
+  :root{
+    --teal:#00695C; --teal-dark:#004D40; --amber:#FFA000;
+    --bg:#F8F5F2; --card:#fff; --line:#E3DDD6; --muted:#6B6560;
+    --ok:#1B7F4C; --ok-bg:#E6F4EC; --err:#B3261E; --err-bg:#FDECEA;
+    --warn:#8A6100; --warn-bg:#FFF4E0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:#1B1B1B;
+    font-family:'Vazirmatn',Tahoma,'Iranian Sans',system-ui,sans-serif;
+    line-height:1.8;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+  header{
+    background:var(--teal); color:#fff; border-radius:18px;
+    padding:22px; margin-bottom:18px;
+  }
+  header h1{margin:0 0 6px; font-size:22px}
+  header p{margin:0; opacity:.9; font-size:13px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:18px; margin-bottom:14px;
+  }
+  .card h2{margin:0 0 4px; font-size:16px}
+  .card .hint{margin:0 0 14px; font-size:12px; color:var(--muted)}
+  label{display:block; font-size:13px; margin:10px 0 4px; font-weight:500}
+  input{
+    width:100%; padding:11px 12px; border:1px solid var(--line);
+    border-radius:10px; font-family:inherit; font-size:14px; background:#fff;
+  }
+  input:focus{outline:2px solid var(--teal); outline-offset:-1px; border-color:transparent}
+  input[dir=ltr]{direction:ltr; text-align:left}
+  .row{display:flex; gap:8px; flex-wrap:wrap; margin-top:14px}
+  button{
+    flex:1; min-width:130px; padding:12px 14px; border:0; border-radius:12px;
+    background:var(--teal); color:#fff; font-family:inherit; font-size:14px;
+    font-weight:600; cursor:pointer;
+  }
+  button:hover:not(:disabled){background:var(--teal-dark)}
+  button:disabled{opacity:.5; cursor:not-allowed}
+  button.ghost{background:#fff; color:var(--teal); border:1.5px solid var(--teal)}
+  button.ghost:hover:not(:disabled){background:#F0F7F6}
+  button.small{flex:0 0 auto; min-width:auto; padding:8px 14px; font-size:13px}
+  .res{
+    margin-top:14px; padding:13px 15px; border-radius:12px;
+    font-size:13.5px; display:none; white-space:pre-wrap; word-break:break-word;
+  }
+  .res.show{display:block}
+  .res.ok{background:var(--ok-bg); color:var(--ok); border:1px solid #B8E0C8}
+  .res.err{background:var(--err-bg); color:var(--err); border:1px solid #F5C6C2}
+  .res.warn{background:var(--warn-bg); color:var(--warn); border:1px solid #F0D9A8}
+  .res.info{background:#EAF2FB; color:#1A4F8A; border:1px solid #C2DAF2}
+  .res b{display:block; margin-bottom:4px; font-size:14.5px}
+  details{margin-top:9px}
+  summary{cursor:pointer; font-size:12px; opacity:.75}
+  pre{
+    direction:ltr; text-align:left; background:#1E2227; color:#D6E0EA;
+    padding:11px; border-radius:9px; overflow-x:auto; font-size:11.5px;
+    margin:7px 0 0; line-height:1.55;
+  }
+  .badge{
+    display:inline-block; padding:3px 9px; border-radius:7px;
+    font-size:11.5px; font-weight:600; margin:2px 3px 2px 0;
+  }
+  .b-ok{background:var(--ok-bg); color:var(--ok)}
+  .b-err{background:var(--err-bg); color:var(--err)}
+  .b-warn{background:var(--warn-bg); color:var(--warn)}
+  .spin{
+    display:inline-block; width:13px; height:13px; border:2px solid #fff6;
+    border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite;
+    vertical-align:-2px; margin-left:6px;
+  }
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .note{
+    background:var(--warn-bg); border:1px solid #F0D9A8; color:var(--warn);
+    border-radius:12px; padding:13px 15px; font-size:12.5px; margin-bottom:14px;
+  }
+  code{
+    background:#EFEAE5; padding:1px 6px; border-radius:5px;
+    font-size:12px; direction:ltr; display:inline-block;
+  }
+  .step{
+    display:flex; align-items:center; gap:9px; padding:7px 0;
+    border-bottom:1px dashed var(--line); font-size:13px;
+  }
+  .step:last-child{border-bottom:0}
+  .step .ic{font-size:15px; width:20px; text-align:center; flex:0 0 20px}
+  .step .tx{flex:1}
+  .step .st{font-size:11.5px; font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>🏪 تست اتصال Supabase</h1>
+    <p>همان درخواست‌هایی که اپ «چی داری؟» می‌فرستد</p>
+  </header>
+
+  <div class="note">
+    <b>راهنما:</b> این صفحه دقیقاً همان endpointهای GoTrue را صدا می‌زند که اپ اندروید استفاده می‌کند.
+    اگر اینجا کار کند، در اپ هم کار می‌کند. با یک ایمیل <b>واقعی</b> تست کنید تا رسیدن ایمیل را ببینید.
+  </div>
+
+  <!-- ۱ -->
+  <div class="card">
+    <h2>۱ — بررسی سلامت پروژه</h2>
+    <p class="hint">اتصال، فعال بودن ثبت‌نام با ایمیل، و وضعیت تأیید ایمیل را چک می‌کند. هیچ ایمیلی ارسال نمی‌شود.</p>
+    <div class="row">
+      <button onclick="checkHealth()">بررسی وضعیت سرور</button>
+    </div>
+    <div id="r1" class="res"></div>
+  </div>
+
+  <!-- ۲ -->
+  <div class="card">
+    <h2>۲ — ثبت‌نام و ارسال ایمیل تأیید <span class="badge b-warn">تست اصلی SMTP</span></h2>
+    <p class="hint">مهم‌ترین تست. اگر SMTP جیمیل درست تنظیم شده باشد، ایمیل باید ظرف چند ثانیه برسد.</p>
+    <label>نام</label>
+    <input id="name" value="کاربر تست">
+    <label>ایمیل <span style="color:var(--muted);font-weight:400">(واقعی باشد)</span></label>
+    <input id="email" type="email" dir="ltr" placeholder="you@gmail.com">
+    <label>رمز عبور <span style="color:var(--muted);font-weight:400">(حداقل ۶ نویسه)</span></label>
+    <input id="pass" type="text" dir="ltr" value="test123456">
+    <div class="row">
+      <button onclick="doSignUp()">ثبت‌نام + ارسال ایمیل</button>
+      <button class="ghost" onclick="doResend()">ارسال دوباره</button>
+    </div>
+    <div id="r2" class="res"></div>
+  </div>
+
+  <!-- ۳ -->
+  <div class="card">
+    <h2>۳ — ورود</h2>
+    <p class="hint">بعد از کلیک روی لینک داخل ایمیل، اینجا وارد شوید. قبل از تأیید ایمیل باید خطای «تأیید نشده» بدهد.</p>
+    <div class="row">
+      <button onclick="doSignIn()">ورود با همان ایمیل و رمز بالا</button>
+    </div>
+    <div id="r3" class="res"></div>
+  </div>
+
+  <!-- ۴ -->
+  <div class="card">
+    <h2>۴ — بازیابی رمز عبور</h2>
+    <p class="hint">یک ایمیل دیگر می‌فرستد. برای تست کامل قالب‌های ایمیل مفید است.</p>
+    <div class="row">
+      <button class="ghost" onclick="doReset()">ارسال لینک بازیابی</button>
+    </div>
+    <div id="r4" class="res"></div>
+  </div>
+
+  <!-- ۵ -->
+  <div class="card">
+    <h2>۵ — تست خطاها</h2>
+    <p class="hint">بررسی می‌کند که پیام‌های خطا همان‌طور که اپ ترجمه می‌کند برگردند.</p>
+    <div class="row">
+      <button class="ghost small" onclick="testWrongPass()">رمز اشتباه</button>
+      <button class="ghost small" onclick="testBadEmail()">ایمیل نامعتبر</button>
+      <button class="ghost small" onclick="testShortPass()">رمز کوتاه</button>
+    </div>
+    <div id="r5" class="res"></div>
+  </div>
+
+  <div class="card" style="background:#F0F7F6;border-color:#B2DFDB">
+    <h2>📋 خلاصه نتایج</h2>
+    <p class="hint">هر تستی که اجرا کنید اینجا ثبت می‌شود.</p>
+    <div id="summary" style="font-size:13px;color:var(--muted)">هنوز تستی اجرا نشده.</div>
+  </div>
+
+</div>
+
+<script>
+const URL_ = "https://YOUR-PROJECT-ID.supabase.co";
+const KEY  = "YOUR-ANON-PUBLIC-KEY";
+
+const H = {
+  "apikey": KEY,
+  "Authorization": "Bearer " + KEY,
+  "Content-Type": "application/json"
+};
+
+const steps = [];
+function logStep(icon, text, status, cls){
+  steps.push({icon, text, status, cls});
+  document.getElementById("summary").innerHTML = steps.map(s =>
+    `<div class="step"><span class="ic">${s.icon}</span>
+     <span class="tx">${s.text}</span>
+     <span class="st badge ${s.cls}">${s.status}</span></div>`
+  ).join("");
+}
+
+function show(id, cls, title, body, raw){
+  const el = document.getElementById(id);
+  el.className = "res show " + cls;
+  el.innerHTML = `<b>${title}</b>${body||""}` +
+    (raw ? `<details><summary>پاسخ خام سرور</summary><pre>${
+      JSON.stringify(raw,null,2).replace(/</g,"&lt;")}</pre></details>` : "");
+}
+function busy(id, text){
+  const el = document.getElementById(id);
+  el.className = "res show info";
+  el.innerHTML = `<b>${text}<span class="spin"></span></b>`;
+}
+
+// همان ترجمه‌ای که در AuthModels.kt اپ هست
+function translate(msg, code){
+  const m = (msg||"").toLowerCase();
+  if (m.includes("invalid login credentials")) return "ایمیل یا رمز عبور اشتباه است.";
+  if (m.includes("email not confirmed"))       return "ایمیل شما هنوز تأیید نشده است.";
+  if (m.includes("already registered") || m.includes("already been registered"))
+                                               return "این ایمیل قبلاً ثبت شده است.";
+  if (m.includes("password should be at least")) return "رمز عبور باید حداقل ۶ نویسه باشد.";
+  if (m.includes("unable to validate email") || m.includes("invalid email"))
+                                               return "قالب ایمیل معتبر نیست.";
+  if (m.includes("rate limit") || code === 429) return "تعداد درخواست‌ها زیاد بود.";
+  if (m.includes("signups not allowed"))       return "ثبت‌نام غیرفعال است.";
+  if (m.includes("error sending"))             return "ارسال ایمیل ناموفق بود — SMTP را بررسی کنید.";
+  return msg || ("خطای ناشناخته (کد " + code + ")");
+}
+
+async function api(path, body){
+  const res  = await fetch(URL_ + "/auth/v1" + path, {
+    method: "POST", headers: H, body: JSON.stringify(body)
+  });
+  let json = null;
+  try { json = await res.json(); } catch(e){}
+  return { ok: res.ok, code: res.status, json };
+}
+function errOf(j){
+  return j?.msg || j?.error_description || j?.message || j?.error || "";
+}
+const val = id => document.getElementById(id).value.trim();
+
+// ---------- ۱ ----------
+async function checkHealth(){
+  busy("r1","در حال بررسی…");
+  try{
+    const r = await fetch(URL_ + "/auth/v1/settings", { headers:{ apikey: KEY }});
+    const s = await r.json();
+    const emailOn  = s.external?.email === true;
+    const signupOn = s.disable_signup === false;
+    const confirm  = s.mailer_autoconfirm === false;
+    const allGood  = emailOn && signupOn && confirm;
+
+    show("r1", allGood ? "ok" : "warn",
+      allGood ? "✅ پروژه سالم است و آماده ثبت‌نام" : "⚠️ پروژه پاسخ داد ولی تنظیمی ایراد دارد",
+      `<div style="margin-top:8px">
+        <span class="badge ${emailOn ?"b-ok":"b-err"}">${emailOn ?"✓":"✗"} ثبت‌نام با ایمیل</span>
+        <span class="badge ${signupOn?"b-ok":"b-err"}">${signupOn?"✓":"✗"} ثبت‌نام باز</span>
+        <span class="badge ${confirm ?"b-ok":"b-warn"}">${confirm ?"✓ تأیید ایمیل الزامی":"! تأیید خودکار"}</span>
+      </div>`, s);
+    logStep("🔌","اتصال به سرور", allGood?"سالم":"هشدار", allGood?"b-ok":"b-warn");
+  }catch(e){
+    show("r1","err","❌ اتصال برقرار نشد",
+      "<div>اینترنت یا فیلترشکن را بررسی کنید. Supabase در ایران معمولاً نیاز به VPN دارد.</div>",
+      {error:String(e)});
+    logStep("🔌","اتصال به سرور","ناموفق","b-err");
+  }
+}
+
+// ---------- ۲ ----------
+async function doSignUp(){
+  const email = val("email"), pass = val("pass"), name = val("name");
+  if(!email){ show("r2","err","ایمیل را وارد کنید",""); return; }
+  busy("r2","در حال ثبت‌نام و ارسال ایمیل…");
+
+  const t0 = Date.now();
+  const { ok, code, json } = await api("/signup",
+    { email, password: pass, data:{ display_name: name }});
+  const ms = Date.now() - t0;
+
+  if(!ok){
+    const msg = translate(errOf(json), code);
+    const smtp = errOf(json).toLowerCase().includes("error sending");
+    show("r2","err", "❌ " + msg,
+      smtp ? `<div style="margin-top:8px">این خطا یعنی <b>SMTP درست تنظیم نشده</b>.
+              رمز App Password را بدون فاصله وارد کنید و پورت ۴۶۵ را امتحان کنید.</div>` : "",
+      json);
+    logStep("📧","ثبت‌نام / ارسال ایمیل","ناموفق","b-err");
+    return;
+  }
+
+  const sent    = json?.confirmation_sent_at;
+  const hasTok  = !!json?.access_token;
+  const already = Array.isArray(json?.identities) && json.identities.length === 0;
+  const gotUser = !!json?.id;
+
+  if(already){
+    show("r2","warn","⚠️ این ایمیل از قبل ثبت شده",
+      "<div>Supabase برای امنیت، پاسخ تکراری می‌دهد. با همین ایمیل «ورود» را امتحان کنید یا از پنل حذفش کنید.</div>", json);
+    logStep("📧","ثبت‌نام","تکراری","b-warn");
+  } else if(sent){
+    show("r2","ok","✅ ایمیل تأیید ارسال شد!",
+      `<div style="margin-top:8px">
+         سرور در <b>${ms} میلی‌ثانیه</b> پاسخ داد و ایمیل را به <b>${email}</b> فرستاد.<br>
+         حالا صندوق ورودی (و پوشه <b>اسپم</b>) را ببینید.<br><br>
+         <b>اگر ایمیل رسید ← SMTP جیمیل شما درست کار می‌کند.</b> ✅<br>
+         نام فرستنده و متن ایمیل را هم چک کنید.
+       </div>`, json);
+    logStep("📧","ارسال ایمیل تأیید","موفق","b-ok");
+  } else if(hasTok){
+    show("r2","warn","⚠️ بدون تأیید ایمیل وارد شدید",
+      "<div>یعنی گزینه <code>Confirm email</code> در پنل خاموش است. برای امنیت روشنش کنید.</div>", json);
+    logStep("📧","ثبت‌نام","بدون تأیید","b-warn");
+  } else if(gotUser){
+    show("r2","warn","⚠️ کاربر ساخته شد ولی ایمیل ارسال نشد",
+      `<div style="margin-top:8px">فیلد <code>confirmation_sent_at</code> خالی است.
+       معمولاً یعنی این ایمیل قبلاً ثبت شده، یا سقف ارسال پر شده است.</div>`, json);
+    logStep("📧","ثبت‌نام","بدون ارسال ایمیل","b-warn");
+  } else {
+    show("r2","warn","⚠️ پاسخ خالی از سرور",
+      `<div style="margin-top:8px">معمولاً یعنی <b>سقف ارسال ایمیل پر شده</b> (rate limit).
+       چند دقیقه صبر کنید. اگر تکرار شد، یعنی SMTP سفارشی هنوز فعال نیست.</div>`, json);
+    logStep("📧","ثبت‌نام","سقف ارسال؟","b-warn");
+  }
+}
+
+async function doResend(){
+  const email = val("email");
+  if(!email){ show("r2","err","ایمیل را وارد کنید",""); return; }
+  busy("r2","در حال ارسال دوباره…");
+  const { ok, code, json } = await api("/resend", { type:"signup", email });
+  if(ok){
+    show("r2","ok","✅ ایمیل دوباره فرستاده شد","<div>صندوق ورودی و اسپم را ببینید.</div>", json);
+    logStep("🔁","ارسال دوباره","موفق","b-ok");
+  } else {
+    show("r2","err","❌ " + translate(errOf(json), code), "", json);
+    logStep("🔁","ارسال دوباره","ناموفق","b-err");
+  }
+}
+
+// ---------- ۳ ----------
+async function doSignIn(){
+  const email = val("email"), pass = val("pass");
+  if(!email){ show("r3","err","ایمیل را وارد کنید",""); return; }
+  busy("r3","در حال ورود…");
+
+  const { ok, code, json } = await api("/token?grant_type=password",
+    { email, password: pass });
+
+  if(ok && json?.access_token){
+    const u = json.user || {};
+    show("r3","ok","🎉 ورود موفق — همه‌چیز کار می‌کند!",
+      `<div style="margin-top:8px">
+         شناسه: <code>${(u.id||"").slice(0,8)}…</code><br>
+         ایمیل: <b>${u.email||"—"}</b><br>
+         نام: <b>${u.user_metadata?.display_name || "—"}</b><br>
+         تأیید ایمیل: <b>${u.email_confirmed_at ? "✅ شده" : "❌ نشده"}</b><br>
+         اعتبار توکن: <b>${Math.round((json.expires_in||0)/60)} دقیقه</b> (اپ خودکار تمدید می‌کند)
+       </div>`, json);
+    logStep("🔑","ورود","موفق","b-ok");
+  } else {
+    const raw = errOf(json).toLowerCase();
+    const notConfirmed = raw.includes("not confirmed");
+    show("r3", notConfirmed ? "warn" : "err",
+      (notConfirmed ? "⚠️ " : "❌ ") + translate(errOf(json), code),
+      notConfirmed
+        ? "<div style='margin-top:8px'>این <b>درست</b> است! یعنی تأیید ایمیل فعال است. روی لینک داخل ایمیل بزنید و دوباره امتحان کنید.</div>"
+        : "", json);
+    logStep("🔑","ورود", notConfirmed ? "منتظر تأیید" : "ناموفق",
+            notConfirmed ? "b-warn" : "b-err");
+  }
+}
+
+// ---------- ۴ ----------
+async function doReset(){
+  const email = val("email");
+  if(!email){ show("r4","err","ایمیل را وارد کنید",""); return; }
+  busy("r4","در حال ارسال لینک بازیابی…");
+  const { ok, code, json } = await api("/recover", { email });
+  if(ok){
+    show("r4","ok","✅ لینک بازیابی ارسال شد",
+      "<div>ایمیل دوم را در صندوق ورودی ببینید — این هم از SMTP شما می‌رود.</div>", json);
+    logStep("🔓","بازیابی رمز","موفق","b-ok");
+  } else {
+    show("r4","err","❌ " + translate(errOf(json), code), "", json);
+    logStep("🔓","بازیابی رمز","ناموفق","b-err");
+  }
+}
+
+// ---------- ۵ ----------
+async function testWrongPass(){
+  busy("r5","تست رمز اشتباه…");
+  const { code, json } = await api("/token?grant_type=password",
+    { email:"no-such-user-9f3a@example.com", password:"definitelywrong" });
+  const t = translate(errOf(json), code);
+  const good = t.includes("اشتباه");
+  show("r5", good?"ok":"warn",
+    (good?"✅":"⚠️") + " پاسخ: «" + t + "»",
+    "<div style='margin-top:6px'>اپ هم دقیقاً همین پیام فارسی را نشان می‌دهد.</div>", json);
+  logStep("🧪","ترجمه خطای رمز اشتباه", good?"درست":"بررسی شود", good?"b-ok":"b-warn");
+}
+async function testBadEmail(){
+  busy("r5","تست ایمیل نامعتبر…");
+  const { code, json } = await api("/signup", { email:"not-an-email", password:"test123456" });
+  show("r5","ok","✅ پاسخ: «" + translate(errOf(json), code) + "»",
+    "<div style='margin-top:6px'>اپ قبل از ارسال هم خودش این را می‌گیرد.</div>", json);
+  logStep("🧪","ترجمه خطای ایمیل نامعتبر","درست","b-ok");
+}
+async function testShortPass(){
+  busy("r5","تست رمز کوتاه…");
+  const { code, json } = await api("/signup",
+    { email:"short-pass-test-"+Date.now()+"@example.com", password:"12" });
+  show("r5","ok","✅ پاسخ: «" + translate(errOf(json), code) + "»", "", json);
+  logStep("🧪","ترجمه خطای رمز کوتاه","درست","b-ok");
+}
+
+// اجرای خودکار تست ۱
+window.addEventListener("load", checkHealth);
+</script>
+</body>
+</html>

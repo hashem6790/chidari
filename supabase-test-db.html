@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تست پایگاه داده — چی داری؟</title>
+<style>
+  :root{--teal:#00695C;--teal-d:#004D40;--bg:#F8F5F2;--line:#E3DDD6;--muted:#6B6560;
+        --ok:#1B7F4C;--ok-bg:#E6F4EC;--err:#B3261E;--err-bg:#FDECEA;--warn:#8A6100;--warn-bg:#FFF4E0}
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px;background:var(--bg);color:#1B1B1B;line-height:1.8;
+       font-family:'Vazirmatn',Tahoma,system-ui,sans-serif}
+  .wrap{max-width:780px;margin:0 auto}
+  header{background:var(--teal);color:#fff;border-radius:18px;padding:22px;margin-bottom:16px}
+  header h1{margin:0 0 6px;font-size:22px}
+  header p{margin:0;opacity:.9;font-size:13px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px}
+  .card h2{margin:0 0 4px;font-size:16px}
+  .hint{margin:0 0 14px;font-size:12px;color:var(--muted)}
+  label{display:block;font-size:13px;margin:10px 0 4px;font-weight:500}
+  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+        font-family:inherit;font-size:14px}
+  input[dir=ltr]{direction:ltr;text-align:left}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  button{flex:1;min-width:130px;padding:12px 14px;border:0;border-radius:12px;background:var(--teal);
+         color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+  button:hover:not(:disabled){background:var(--teal-d)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:#fff;color:var(--teal);border:1.5px solid var(--teal)}
+  .res{margin-top:14px;padding:13px 15px;border-radius:12px;font-size:13.5px;display:none;
+       white-space:pre-wrap;word-break:break-word}
+  .res.show{display:block}
+  .res.ok{background:var(--ok-bg);color:var(--ok);border:1px solid #B8E0C8}
+  .res.err{background:var(--err-bg);color:var(--err);border:1px solid #F5C6C2}
+  .res.warn{background:var(--warn-bg);color:var(--warn);border:1px solid #F0D9A8}
+  .res.info{background:#EAF2FB;color:#1A4F8A;border:1px solid #C2DAF2}
+  .res b{display:block;margin-bottom:4px;font-size:14.5px}
+  details{margin-top:9px}
+  summary{cursor:pointer;font-size:12px;opacity:.75}
+  pre{direction:ltr;text-align:left;background:#1E2227;color:#D6E0EA;padding:11px;border-radius:9px;
+      overflow-x:auto;font-size:11.5px;margin:7px 0 0;line-height:1.55}
+  .badge{display:inline-block;padding:3px 9px;border-radius:7px;font-size:11.5px;font-weight:600;margin:2px 3px 2px 0}
+  .b-ok{background:var(--ok-bg);color:var(--ok)}
+  .b-err{background:var(--err-bg);color:var(--err)}
+  .b-warn{background:var(--warn-bg);color:var(--warn)}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid #fff6;border-top-color:#fff;
+        border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-left:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .note{background:var(--warn-bg);border:1px solid #F0D9A8;color:var(--warn);border-radius:12px;
+        padding:13px 15px;font-size:12.5px;margin-bottom:14px}
+  code{background:#EFEAE5;padding:1px 6px;border-radius:5px;font-size:12px;direction:ltr;display:inline-block}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--line)}
+  th{font-size:12px;color:var(--muted);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🗄️ تست پایگاه داده و همگام‌سازی</h1>
+  <p>بررسی جدول‌ها، سیاست‌های امنیتی (RLS) و عملیات فروشگاه</p>
+</header>
+
+<div class="note">
+  <b>پیش‌نیاز:</b> اول فایل <code>supabase-schema.sql</code> را در
+  <b>SQL Editor</b> پروژه Supabase اجرا کنید، بعد این تست‌ها را بزنید.
+</div>
+
+<div class="card">
+  <h2>۱ — آیا جدول‌ها ساخته شده‌اند؟</h2>
+  <p class="hint">وجود هر ۶ جدول را بررسی می‌کند. نیازی به ورود ندارد.</p>
+  <div class="row"><button onclick="checkTables()">بررسی جدول‌ها</button></div>
+  <div id="r1" class="res"></div>
+</div>
+
+<div class="card">
+  <h2>۲ — خواندن عمومی (بدون حساب)</h2>
+  <p class="hint">مهمان‌ها باید بتوانند فروشگاه‌ها را ببینند — همان کاری که اپ برای کاربر واردنشده می‌کند.</p>
+  <div class="row"><button onclick="publicRead()">خواندن فروشگاه‌ها بدون ورود</button></div>
+  <div id="r2" class="res"></div>
+</div>
+
+<div class="card">
+  <h2>۳ — امنیت: نوشتن بدون ورود باید رد شود <span class="badge b-warn">مهم</span></h2>
+  <p class="hint">اگر این تست «موفق» شود یعنی امنیت مشکل دارد و هر کسی می‌تواند فروشگاه جعلی بسازد.</p>
+  <div class="row"><button class="ghost" onclick="anonWrite()">تلاش برای ساخت فروشگاه بدون حساب</button></div>
+  <div id="r3" class="res"></div>
+</div>
+
+<div class="card">
+  <h2>۴ — ورود <span class="badge b-warn">اینجا گیر کرده‌اید</span></h2>
+  <p class="hint">اگر ورود ناموفق بود، از همین‌جا می‌توانید ثبت‌نام کنید و با کد ایمیل حساب را تأیید کنید.</p>
+  <label>ایمیل</label><input id="email" type="email" dir="ltr" placeholder="you@gmail.com">
+  <label>رمز عبور</label><input id="pass" type="text" dir="ltr" placeholder="حداقل ۶ نویسه">
+  <div class="row">
+    <button onclick="login()">ورود</button>
+    <button class="ghost" onclick="signupHere()">ثبت‌نام / ارسال کد</button>
+  </div>
+  <div id="r4" class="res"></div>
+
+  <div id="otpBox" style="display:none;margin-top:14px;padding:14px;
+       background:#FFF4E0;border:1px solid #F0D9A8;border-radius:12px">
+    <b style="font-size:14px;color:#8A6100">کد داخل ایمیل را وارد کنید</b>
+    <p style="font-size:12px;color:#8A6100;margin:6px 0 0">
+      اگر در ایمیل کدی نمی‌بینید و فقط دکمه/لینک هست، یعنی قالب ایمیل هنوز عوض نشده
+      (راهنمای <code>EMAIL_TEMPLATE_FIX.md</code>).
+    </p>
+    <input id="otp" dir="ltr" maxlength="10" placeholder="کد را کپی کنید"
+      style="margin-top:10px;text-align:center;font-size:22px;letter-spacing:5px;font-weight:bold">
+    <div class="row">
+      <button onclick="verifyHere()">تأیید کد و ورود</button>
+    </div>
+    <div id="rOtp" class="res"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>۵ — چرخه کامل فروشگاه <span class="badge b-warn">تست اصلی</span></h2>
+  <p class="hint">ساخت فروشگاه ← افزودن محصول ← خواندن ← حذف. دقیقاً همان کاری که اپ می‌کند.</p>
+  <div class="row">
+    <button id="btnCycle" onclick="fullCycle()" disabled>اجرای تست کامل (نیاز به ورود)</button>
+  </div>
+  <div id="r5" class="res"></div>
+</div>
+
+<div class="card">
+  <h2>۶ — امنیت: ویرایش فروشگاه دیگران</h2>
+  <p class="hint">بررسی می‌کند که نتوانید فروشگاهی که مال شما نیست را تغییر دهید.</p>
+  <div class="row">
+    <button id="btnRls" class="ghost" onclick="rlsTest()" disabled>تست دسترسی غیرمجاز</button>
+  </div>
+  <div id="r6" class="res"></div>
+</div>
+
+<div class="card" style="background:#F0F7F6;border-color:#B2DFDB">
+  <h2>📋 خلاصه</h2>
+  <div id="sum" style="font-size:13px;color:var(--muted)">هنوز تستی اجرا نشده.</div>
+</div>
+
+</div>
+<script>
+  <!-- ⚠️ پیش از استفاده: دو مقدار زیر را با کلیدهای پروژه خود جایگزین کنید -->
+const U="https://YOUR-PROJECT-ID.supabase.co";
+const K="YOUR-ANON-PUBLIC-KEY";
+let TOKEN=null, UID=null;
+const TABLES=["profiles","stores","products","follows","favorites","ratings"];
+
+const steps=[];
+function log(ic,tx,st,cls){
+  steps.push({ic,tx,st,cls});
+  document.getElementById("sum").innerHTML=steps.map(s=>
+    `<div style="display:flex;gap:9px;padding:6px 0;border-bottom:1px dashed var(--line)">
+      <span style="width:20px">${s.ic}</span><span style="flex:1">${s.tx}</span>
+      <span class="badge ${s.cls}">${s.st}</span></div>`).join("");
+}
+function show(id,cls,t,b,raw){
+  const e=document.getElementById(id);
+  e.className="res show "+cls;
+  e.innerHTML=`<b>${t}</b>${b||""}`+(raw!==undefined?
+    `<details><summary>پاسخ خام</summary><pre>${JSON.stringify(raw,null,2).replace(/</g,"&lt;")}</pre></details>`:"");
+}
+function busy(id,t){const e=document.getElementById(id);e.className="res show info";e.innerHTML=`<b>${t}<span class="spin"></span></b>`}
+const v=id=>document.getElementById(id).value.trim();
+
+function H(auth){
+  const h={apikey:K,"Content-Type":"application/json"};
+  h["Authorization"]="Bearer "+((auth&&TOKEN)?TOKEN:K);
+  return h;
+}
+async function rest(path,opt={}){
+  const r=await fetch(U+"/rest/v1"+path,opt);
+  let j=null; const txt=await r.text();
+  try{j=txt?JSON.parse(txt):null}catch(e){j=txt}
+  return {ok:r.ok,code:r.status,j};
+}
+
+// ---- ۱ ----
+async function checkTables(){
+  busy("r1","در حال بررسی…");
+  const out={};
+  for(const t of TABLES){
+    const r=await fetch(`${U}/rest/v1/${t}?select=*&limit=1`,{headers:{apikey:K}});
+    out[t]=r.status;
+  }
+  const missing=TABLES.filter(t=>out[t]===404);
+  if(missing.length===0){
+    show("r1","ok","✅ هر ۶ جدول ساخته شده‌اند",
+      `<div style="margin-top:8px">`+TABLES.map(t=>`<span class="badge b-ok">✓ ${t}</span>`).join("")+`</div>`,out);
+    log("🗄️","ساخت جدول‌ها","کامل","b-ok");
+  }else{
+    show("r1","err",`❌ ${missing.length} جدول پیدا نشد`,
+      `<div style="margin-top:8px">`+TABLES.map(t=>
+        `<span class="badge ${out[t]===404?"b-err":"b-ok"}">${out[t]===404?"✗":"✓"} ${t}</span>`).join("")+
+      `</div><div style="margin-top:10px">فایل <code>supabase-schema.sql</code> را در SQL Editor اجرا کنید.</div>`,out);
+    log("🗄️","ساخت جدول‌ها","ناقص","b-err");
+  }
+}
+
+// ---- ۲ ----
+async function publicRead(){
+  busy("r2","در حال خواندن…");
+  const {ok,code,j}=await rest("/stores?select=id,name,city,category&limit=20",{headers:{apikey:K}});
+  if(!ok){show("r2","err","❌ خواندن ناموفق (کد "+code+")","",j);log("👁️","خواندن عمومی","ناموفق","b-err");return}
+  const n=Array.isArray(j)?j.length:0;
+  let tbl="";
+  if(n>0){
+    tbl=`<table><tr><th>#</th><th>نام</th><th>شهر</th><th>دسته</th></tr>`+
+      j.slice(0,8).map((s,i)=>`<tr><td>${i+1}</td><td>${s.name||"—"}</td><td>${s.city||"—"}</td><td>${s.category||"—"}</td></tr>`).join("")+
+      `</table>`;
+  }
+  show("r2","ok",`✅ خواندن عمومی کار می‌کند — ${n} فروشگاه`,
+    (n===0?"<div style='margin-top:8px'>جدول خالی است. با تست ۵ یک فروشگاه بسازید.</div>":tbl),j);
+  log("👁️","خواندن بدون حساب","کار می‌کند","b-ok");
+}
+
+// ---- ۳ ----
+async function anonWrite(){
+  busy("r3","در حال تلاش…");
+  const {ok,code,j}=await rest("/stores",{method:"POST",headers:H(false),
+    body:JSON.stringify({owner_id:"00000000-0000-0000-0000-000000000000",
+      name:"فروشگاه جعلی",category:"تست",province:"تهران",city:"تهران",lat:35.7,lng:51.4})});
+  if(!ok){
+    show("r3","ok","✅ عالی — نوشتن بدون حساب رد شد",
+      `<div style="margin-top:8px">سرور با کد <b>${code}</b> جلوی درج را گرفت. یعنی RLS درست کار می‌کند.</div>`,j);
+    log("🛡️","جلوگیری از نوشتن ناشناس","امن","b-ok");
+  }else{
+    show("r3","err","🚨 خطر امنیتی — درج انجام شد!",
+      "<div style='margin-top:8px'>یعنی RLS فعال نیست. بخش انتهایی فایل SQL را دوباره اجرا کنید.</div>",j);
+    log("🛡️","جلوگیری از نوشتن ناشناس","ناامن!","b-err");
+  }
+}
+
+// ---- ۴ ----
+async function login(){
+  const email=v("email"),pass=v("pass");
+  if(!email||!pass){show("r4","err","ایمیل و رمز را وارد کنید","");return}
+  busy("r4","در حال ورود…");
+  const r=await fetch(U+"/auth/v1/token?grant_type=password",
+    {method:"POST",headers:{apikey:K,"Content-Type":"application/json"},
+     body:JSON.stringify({email,password:pass})});
+  const j=await r.json();
+  if(r.ok&&j.access_token){
+    TOKEN=j.access_token; UID=j.user.id;
+    document.getElementById("btnCycle").disabled=false;
+    document.getElementById("btnRls").disabled=false;
+    show("r4","ok","🎉 وارد شدید",
+      `<div style="margin-top:8px">شناسه: <code>${UID.slice(0,8)}…</code><br>
+       حالا تست‌های ۵ و ۶ فعال شدند.</div>`);
+    log("🔑","ورود","موفق","b-ok");
+  }else{
+    const m=(j.msg||j.error_description||"").toLowerCase();
+    const ec=(j.error_code||"").toLowerCase();
+    let title="", body="";
+
+    if(m.includes("not confirmed")||ec.includes("not_confirmed")){
+      title="⚠️ علت پیدا شد: ایمیل تأیید نشده است";
+      body=`<div style="margin-top:8px;line-height:2">
+        حساب <b>ساخته شده</b> ولی هنوز تأیید نشده — دقیقاً همان مشکلی که گزارش دادید.<br><br>
+        <b>راه‌حل:</b> دکمه‌ی <b>«ثبت‌نام / ارسال کد»</b> را بزنید تا کد جدید بیاید،
+        سپس کد را در کادری که باز می‌شود وارد کنید.
+      </div>`;
+      document.getElementById("otpBox").style.display="block";
+    } else if(m.includes("invalid login")||ec.includes("invalid_credentials")){
+      title="❌ ایمیل یا رمز اشتباه است";
+      body=`<div style="margin-top:8px;line-height:2">
+        دو حالت دارد:<br>
+        • رمز را اشتباه زده‌اید → دوباره امتحان کنید.<br>
+        • با این ایمیل اصلاً ثبت‌نام نکرده‌اید → دکمه‌ی «ثبت‌نام / ارسال کد» را بزنید.
+      </div>`;
+    } else if(ec.includes("rate")||r.status===429){
+      title="⏳ تعداد درخواست‌ها زیاد بود";
+      body="<div style='margin-top:8px'>چند دقیقه صبر کنید.</div>";
+    } else {
+      title="❌ "+(j.msg||"ورود ناموفق (کد "+r.status+")");
+    }
+    show("r4","err",title,body,j);
+    log("🔑","ورود","ناموفق","b-err");
+  }
+}
+
+// ثبت‌نام از همین صفحه (کد تأیید می‌فرستد)
+async function signupHere(){
+  const email=v("email"),pass=v("pass");
+  if(!email||pass.length<6){show("r4","err","ایمیل و رمز حداقل ۶ نویسه لازم است","");return}
+  busy("r4","در حال ثبت‌نام و ارسال کد…");
+  const r=await fetch(U+"/auth/v1/signup",{method:"POST",
+    headers:{apikey:K,"Content-Type":"application/json"},
+    body:JSON.stringify({email,password:pass,data:{display_name:"کاربر تست"}})});
+  const j=await r.json();
+  if(!r.ok){
+    const m=(j.msg||"").toLowerCase();
+    show("r4","err","❌ "+(m.includes("already")?"این ایمیل قبلاً ثبت شده — دکمه ورود را بزنید":
+      m.includes("error sending")?"ارسال ایمیل ناموفق — تنظیمات SMTP را بررسی کنید":(j.msg||"ناموفق")),"",j);
+    log("📧","ارسال کد","ناموفق","b-err");return;
+  }
+  document.getElementById("otpBox").style.display="block";
+  if(j.confirmation_sent_at){
+    show("r4","ok","✅ کد تأیید ارسال شد",
+      "<div style='margin-top:8px'>ایمیل خود را باز کنید و کد را در کادر زیر وارد کنید.</div>",j);
+    log("📧","ارسال کد","موفق","b-ok");
+  } else if(j.access_token){
+    TOKEN=j.access_token;UID=j.user.id;
+    document.getElementById("btnCycle").disabled=false;
+    document.getElementById("btnRls").disabled=false;
+    show("r4","ok","🎉 بدون نیاز به تأیید وارد شدید","",j);
+    log("🔑","ورود","موفق","b-ok");
+  } else {
+    show("r4","warn","⚠️ پاسخ خالی — احتمالاً سقف ارسال ایمیل پر شده",
+      "<div style='margin-top:8px'>چند دقیقه صبر کنید یا SMTP سفارشی را بررسی کنید.</div>",j);
+    log("📧","ارسال کد","سقف؟","b-warn");
+  }
+}
+
+// تأیید کد — طول کد را سرور تعیین می‌کند (۶ یا ۸ رقم)
+async function verifyHere(){
+  const email=v("email");
+  const code=document.getElementById("otp").value.replace(/\D/g,"");
+  if(code.length<6){show("rOtp","err","کد را کامل وارد کنید (حداقل ۶ رقم)","");return}
+  busy("rOtp","در حال تأیید…");
+  const r=await fetch(U+"/auth/v1/verify",{method:"POST",
+    headers:{apikey:K,"Content-Type":"application/json"},
+    body:JSON.stringify({type:"signup",email,token:code})});
+  const j=await r.json();
+  if(r.ok&&j.access_token){
+    TOKEN=j.access_token;UID=j.user.id;
+    document.getElementById("btnCycle").disabled=false;
+    document.getElementById("btnRls").disabled=false;
+    show("rOtp","ok","🎉 حساب تأیید شد و وارد شدید!",
+      `<div style="margin-top:8px">شناسه: <code>${UID.slice(0,8)}…</code><br>
+       حالا تست‌های ۵ و ۶ فعال شدند. اپ اندروید هم دقیقاً همین کار را می‌کند.</div>`,j);
+    log("✅","تأیید با کد","موفق","b-ok");
+  }else{
+    const m=(j.msg||"").toLowerCase();
+    show("rOtp","err","❌ "+(m.includes("expired")||m.includes("invalid")
+      ?"کد اشتباه است یا منقضی شده — «ثبت‌نام / ارسال کد» را دوباره بزنید":(j.msg||"ناموفق")),"",j);
+    log("✅","تأیید با کد","ناموفق","b-err");
+  }
+}
+
+// ---- ۵ ----
+async function fullCycle(){
+  if(!TOKEN){show("r5","err","اول وارد شوید","");return}
+  busy("r5","مرحله ۱ از ۵ — ساخت فروشگاه…");
+  const stamp=new Date().toLocaleTimeString("fa-IR");
+  const lines=[];
+
+  // ساخت فروشگاه
+  let r=await rest("/stores",{method:"POST",
+    headers:{...H(true),Prefer:"return=representation"},
+    body:JSON.stringify({owner_id:UID,name:"فروشگاه تست "+stamp,category:"سوپرمارکت و خواربار",
+      province:"تهران",city:"تهران",address:"خیابان تست، پلاک ۱",phone:"02100000000",
+      bio:"این فروشگاه برای تست ساخته شده",lat:35.6892,lng:51.3890,cover_emoji:"🛒",
+      open_hours:"۹ صبح تا ۹ شب"})});
+  if(!r.ok){show("r5","err","❌ ساخت فروشگاه ناموفق (کد "+r.code+")","",r.j);
+    log("🏪","چرخه فروشگاه","ناموفق","b-err");return}
+  const store=r.j[0]; const sid=store.id;
+  lines.push(`✅ فروشگاه ساخته شد — شناسه <b>${sid}</b>`);
+
+  // افزودن محصول
+  busy("r5","مرحله ۲ از ۵ — افزودن محصول…");
+  r=await rest("/products",{method:"POST",headers:{...H(true),Prefer:"return=representation"},
+    body:JSON.stringify({store_id:sid,title:"شیر پرچرب ۱ لیتری",category:"لبنیات",price:32000,
+      unit:"عدد",description:"محصول تستی",specs:"حجم: ۱ لیتر\nچربی: ۳٪",emoji:"🥛"})});
+  if(!r.ok){show("r5","err","❌ افزودن محصول ناموفق","<div>"+lines.join("<br>")+"</div>",r.j);
+    log("🏪","چرخه فروشگاه","خطا در محصول","b-err");return}
+  const pid=r.j[0].id;
+  lines.push(`✅ محصول اضافه شد — شناسه <b>${pid}</b>`);
+
+  // خواندن عمومی
+  busy("r5","مرحله ۳ از ۵ — خواندن بدون حساب…");
+  r=await rest(`/stores?select=*,products(*)&id=eq.${sid}`,{headers:{apikey:K}});
+  const seen=r.ok&&Array.isArray(r.j)&&r.j.length>0;
+  const pc=seen?(r.j[0].products||[]).length:0;
+  lines.push(seen?`✅ مهمان‌ها این فروشگاه و <b>${pc}</b> محصولش را می‌بینند`
+                 :`❌ برای مهمان قابل مشاهده نیست`);
+
+  // فالو
+  busy("r5","مرحله ۴ از ۵ — تست فالو…");
+  r=await rest("/follows",{method:"POST",headers:{...H(true),Prefer:"resolution=merge-duplicates"},
+    body:JSON.stringify({user_id:UID,store_id:sid})});
+  if(r.ok){
+    const c=await rest(`/stores?select=follower_count&id=eq.${sid}`,{headers:{apikey:K}});
+    const fc=c.ok&&c.j[0]?c.j[0].follower_count:"?";
+    lines.push(`✅ فالو ثبت شد — شمارنده خودکار: <b>${fc}</b>`);
+  } else lines.push(`⚠️ فالو ناموفق (کد ${r.code})`);
+
+  // پاکسازی
+  busy("r5","مرحله ۵ از ۵ — حذف داده تست…");
+  r=await rest(`/stores?id=eq.${sid}`,{method:"DELETE",headers:H(true)});
+  lines.push(r.ok?`✅ فروشگاه تست حذف شد (محصولش هم خودکار پاک شد)`
+                 :`⚠️ حذف ناموفق — شناسه ${sid} را دستی پاک کنید`);
+
+  const allOk=lines.every(l=>l.startsWith("✅"));
+  show("r5",allOk?"ok":"warn",
+    allOk?"🎉 همه‌چیز کار می‌کند — همگام‌سازی آماده است":"⚠️ بیشتر مراحل موفق بود",
+    "<div style='margin-top:8px;line-height:2'>"+lines.join("<br>")+"</div>");
+  log("🏪","چرخه کامل فروشگاه",allOk?"موفق":"با هشدار",allOk?"b-ok":"b-warn");
+}
+
+// ---- ۶ ----
+async function rlsTest(){
+  if(!TOKEN){show("r6","err","اول وارد شوید","");return}
+  busy("r6","در حال بررسی…");
+  // فروشگاهی که مال ما نیست
+  const r=await rest(`/stores?select=id,name,owner_id&owner_id=neq.${UID}&limit=1`,{headers:{apikey:K}});
+  if(!r.ok||!Array.isArray(r.j)||r.j.length===0){
+    show("r6","info","ℹ️ فروشگاهی از کاربر دیگر پیدا نشد",
+      "<div style='margin-top:8px'>برای این تست باید حداقل یک فروشگاه متعلق به حساب دیگری وجود داشته باشد. فعلاً رد می‌شویم.</div>");
+    log("🛡️","تست ویرایش غیرمجاز","رد شد","b-warn");return;
+  }
+  const other=r.j[0];
+  const up=await rest(`/stores?id=eq.${other.id}`,{method:"PATCH",headers:{...H(true),Prefer:"return=representation"},
+    body:JSON.stringify({name:"هک شد!"})});
+  const changed=up.ok&&Array.isArray(up.j)&&up.j.length>0;
+  if(!changed){
+    show("r6","ok","✅ امن — نتوانستید فروشگاه دیگران را تغییر دهید",
+      `<div style="margin-top:8px">تلاش برای ویرایش «${other.name}» بی‌اثر بود.</div>`,up.j);
+    log("🛡️","تست ویرایش غیرمجاز","امن","b-ok");
+  }else{
+    show("r6","err","🚨 خطر — ویرایش انجام شد!",
+      "<div style='margin-top:8px'>سیاست stores_update درست اعمال نشده.</div>",up.j);
+    log("🛡️","تست ویرایش غیرمجاز","ناامن!","b-err");
+  }
+}
+
+window.addEventListener("load",checkTables);
+</script>
+</body>
+</html>
