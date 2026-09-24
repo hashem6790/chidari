@@ -49,7 +49,15 @@ sealed interface ImageResult {
  */
 class ImageProcessor(private val context: Context) {
 
-    /** یک تصویر را از Uri می‌خواند، اصلاح و فشرده می‌کند و در فایل می‌نویسد. */
+    /**
+     * یک تصویر را از Uri می‌خواند، برش می‌زند، اصلاح و فشرده می‌کند.
+     *
+     * **ترتیب مهم است:** کادر برشی که کاربر انتخاب می‌کند در فضای
+     * «تصویر دیده‌شده» است (یعنی بعد از اعمال چرخش EXIF). ولی فایل روی
+     * دیسک نچرخیده ذخیره شده. پس ابتدا کادر به فضای فایل نگاشت می‌شود،
+     * سپس همان ناحیه خوانده و در آخر چرخانده می‌شود.
+     * بدون این نگاشت، برای عکس‌های دوربین ناحیه‌ی اشتباهی بریده می‌شد.
+     */
     suspend fun process(
         source: Uri,
         cropRect: Rect? = null,
@@ -57,10 +65,20 @@ class ImageProcessor(private val context: Context) {
         maxBytes: Long = MAX_BYTES
     ): ImageResult = withContext(Dispatchers.IO) {
         try {
-            val bitmap = decodeScaled(source, maxDimension, cropRect)
+            val rotation = readRotation(source)
+            val stored = storedSize(source)
                 ?: return@withContext ImageResult.Error("تصویر خوانده نشد.")
 
-            val rotated = applyExifRotation(source, bitmap)
+            // کادر از فضای نمایش به فضای فایل
+            val storedRect = cropRect?.let {
+                mapDisplayRectToStored(it, rotation, stored.first, stored.second)
+            }
+
+            val decoded = decodeScaled(source, maxDimension, storedRect)
+                ?: return@withContext ImageResult.Error("تصویر خوانده نشد.")
+
+            // چرخش پس از برش اعمال می‌شود
+            val rotated = rotate(decoded, rotation)
             val resized = limitDimension(rotated, maxDimension)
             val (bytes, quality) = compressUnder(resized, maxBytes)
 
@@ -70,8 +88,8 @@ class ImageProcessor(private val context: Context) {
             val w = resized.width
             val h = resized.height
             if (resized != rotated) resized.recycle()
-            if (rotated != bitmap) rotated.recycle()
-            bitmap.recycle()
+            if (rotated != decoded) rotated.recycle()
+            decoded.recycle()
 
             ImageResult.Success(out, w, h, out.length(), quality)
         } catch (e: OutOfMemoryError) {
@@ -81,12 +99,80 @@ class ImageProcessor(private val context: Context) {
         }
     }
 
+    /** ابعاد تصویر همان‌طور که روی دیسک ذخیره شده (بدون چرخش). */
+    fun storedSize(uri: Uri): Pair<Int, Int>? {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, o)
+            }
+        }
+        return if (o.outWidth > 0 && o.outHeight > 0) o.outWidth to o.outHeight else null
+    }
+
+    /**
+     * ابعاد تصویر آن‌طور که کاربر می‌بیند (بعد از چرخش).
+     * صفحه برش باید از این استفاده کند، نه ابعاد فایل.
+     */
+    fun displaySize(uri: Uri): Pair<Int, Int>? {
+        val s = storedSize(uri) ?: return null
+        val r = readRotation(uri)
+        return if (r == 90 || r == 270) s.second to s.first else s
+    }
+
+    /** زاویه چرخش ثبت‌شده در EXIF، بر حسب درجه. */
+    fun readRotation(uri: Uri): Int {
+        val o = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        return when (o) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }
+
+    /**
+     * نگاشت کادر از فضای نمایش (چرخیده) به فضای فایل (نچرخیده).
+     *
+     * مثال ۹۰ درجه: تصویر ذخیره‌شده ۱۰۰×۲۰۰ بعد از چرخش ۲۰۰×۱۰۰ دیده می‌شود.
+     * گوشه بالا-چپِ دیده‌شده در واقع گوشه پایین-چپِ فایل است.
+     */
+    internal fun mapDisplayRectToStored(r: Rect, rotation: Int, sw: Int, sh: Int): Rect {
+        val out = when (rotation) {
+            90 -> Rect(r.top, sh - r.right, r.bottom, sh - r.left)
+            180 -> Rect(sw - r.right, sh - r.bottom, sw - r.left, sh - r.top)
+            270 -> Rect(sw - r.bottom, r.left, sw - r.top, r.right)
+            else -> Rect(r)
+        }
+        // محدود کردن به مرزهای فایل
+        out.left = out.left.coerceIn(0, sw - 1)
+        out.top = out.top.coerceIn(0, sh - 1)
+        out.right = out.right.coerceIn(out.left + 1, sw)
+        out.bottom = out.bottom.coerceIn(out.top + 1, sh)
+        return out
+    }
+
+    /** چرخاندن بیت‌مپ به اندازه زاویه داده‌شده. */
+    private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
+        if (degrees == 0) return bitmap
+        val m = Matrix().apply { postRotate(degrees.toFloat()) }
+        return runCatching {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
+        }.getOrDefault(bitmap)
+    }
+
     /** فقط خواندن تصویر برای نمایش در صفحه برش (با اندازه کنترل‌شده). */
     suspend fun loadForCrop(source: Uri, maxDimension: Int = CROP_PREVIEW): Bitmap? =
         withContext(Dispatchers.IO) {
             runCatching {
                 val bmp = decodeScaled(source, maxDimension, null) ?: return@runCatching null
-                applyExifRotation(source, bmp)
+                rotate(bmp, readRotation(source))
             }.getOrNull()
         }
 
@@ -140,35 +226,6 @@ class ImageProcessor(private val context: Context) {
             sample *= 2
         }
         return sample
-    }
-
-    /** اصلاح چرخش بر اساس اطلاعات EXIF عکس. */
-    private fun applyExifRotation(uri: Uri, bitmap: Bitmap): Bitmap {
-        val orientation = runCatching {
-            context.contentResolver.openInputStream(uri)?.use {
-                ExifInterface(it).getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-            } ?: ExifInterface.ORIENTATION_NORMAL
-        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-
-        if (orientation == ExifInterface.ORIENTATION_NORMAL ||
-            orientation == ExifInterface.ORIENTATION_UNDEFINED
-        ) return bitmap
-
-        val m = Matrix()
-        when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
-            else -> return bitmap
-        }
-        return runCatching {
-            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
-        }.getOrDefault(bitmap)
     }
 
     /**

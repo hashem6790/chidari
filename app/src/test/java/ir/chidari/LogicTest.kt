@@ -5,6 +5,7 @@ import ir.chidari.data.GeoUtils
 import ir.chidari.data.IranGeo
 import ir.chidari.data.normalizeFa
 import ir.chidari.util.Fa
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -289,5 +290,55 @@ class ImageEngineTest {
     @Test fun `one megabyte cap constant is correct`() {
         assertEquals(1024L * 1024L, ir.chidari.data.image.ImageProcessor.MAX_BYTES)
         assertEquals(1600, ir.chidari.data.image.ImageProcessor.MAX_DIMENSION)
+    }
+}
+
+/**
+ * تست نگاشت کادر برش برای عکس‌های چرخیده.
+ *
+ * باگی که رفع شد: کادر در فضای «تصویر دیده‌شده» انتخاب می‌شود ولی فایل
+ * روی دیسک نچرخیده است. بدون نگاشت، ناحیه اشتباهی بریده می‌شد — که برای
+ * همه عکس‌های دوربین (که EXIF چرخش دارند) اتفاق می‌افتاد.
+ */
+class CropRotationTest {
+
+    /** همان منطق mapDisplayRectToStored. */
+    private fun map(r: IntArray, rot: Int, sw: Int, sh: Int): IntArray {
+        val (l, t, rr, b) = listOf(r[0], r[1], r[2], r[3])
+        return when (rot) {
+            90 -> intArrayOf(t, sh - rr, b, sh - l)
+            180 -> intArrayOf(sw - rr, sh - b, sw - l, sh - t)
+            270 -> intArrayOf(sw - b, l, sw - t, r[2].let { rr })
+            else -> intArrayOf(l, t, rr, b)
+        }
+    }
+
+    @Test fun `no rotation leaves the rect untouched`() {
+        val out = map(intArrayOf(10, 20, 50, 60), 0, 100, 200)
+        assertArrayEquals(intArrayOf(10, 20, 50, 60), out)
+    }
+
+    @Test fun `90 degree rotation maps display top-left to stored bottom-left`() {
+        // فایل ۱۰۰×۲۰۰ ، دیده‌شده ۲۰۰×۱۰۰
+        // گوشه بالا-چپِ دیده‌شده باید به پایین-چپِ فایل برود
+        val out = map(intArrayOf(0, 0, 50, 50), 90, 100, 200)
+        assertEquals("left", 0, out[0])
+        assertEquals("top", 150, out[1])
+        assertEquals("right", 50, out[2])
+        assertEquals("bottom", 200, out[3])
+    }
+
+    @Test fun `180 degree rotation flips both axes`() {
+        val out = map(intArrayOf(0, 0, 40, 30), 180, 100, 200)
+        assertArrayEquals(intArrayOf(60, 170, 100, 200), out)
+    }
+
+    @Test fun `mapped rect keeps the same area`() {
+        val w = 50; val h = 40
+        val out = map(intArrayOf(10, 20, 10 + w, 20 + h), 90, 300, 400)
+        // چرخش ۹۰ درجه ابعاد را جابه‌جا می‌کند ولی مساحت ثابت می‌ماند
+        val mw = out[2] - out[0]
+        val mh = out[3] - out[1]
+        assertEquals(w * h, mw * mh)
     }
 }

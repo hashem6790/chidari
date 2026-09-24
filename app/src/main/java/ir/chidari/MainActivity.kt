@@ -729,6 +729,8 @@ private fun ChiDariRoot() {
             var loaded by remember { mutableStateOf(false) }
 
             LaunchedEffect(storeId, productId) {
+                // تصویر محصول قبلی نباید به این فرم نشت کند
+                processedImage = ""
                 storeCategory = vm.loadStore(storeId)?.category.orEmpty()
                 if (productId > 0L) existing = vm.loadProduct(productId)
                 loaded = true

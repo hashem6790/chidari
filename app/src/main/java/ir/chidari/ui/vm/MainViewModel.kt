@@ -705,21 +705,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _imageState.value = ProductImageState.Failed("تصویر خوانده نشد.")
                 return@launch
             }
-            val (w, h) = sourceSize(uri)
+            val (w, h) = displaySize(uri)
             _imageState.value = ProductImageState.Cropping(uri, bmp, w, h)
         }
     }
 
-    /** ابعاد واقعی فایل اصلی، بدون بارگذاری کامل در حافظه. */
-    private fun sourceSize(uri: android.net.Uri): Pair<Int, Int> {
-        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        runCatching {
-            getApplication<android.app.Application>().contentResolver.openInputStream(uri)?.use {
-                android.graphics.BitmapFactory.decodeStream(it, null, o)
-            }
-        }
-        return (o.outWidth.takeIf { it > 0 } ?: 1) to (o.outHeight.takeIf { it > 0 } ?: 1)
-    }
+    /**
+     * ابعاد تصویر آن‌طور که کاربر می‌بیند (با احتساب چرخش EXIF).
+     * صفحه برش باید با همین کار کند وگرنه برای عکس‌های چرخیده،
+     * کادر به ناحیه اشتباه نگاشت می‌شود.
+     */
+    private fun displaySize(uri: android.net.Uri): Pair<Int, Int> =
+        images.displaySize(uri) ?: (1 to 1)
 
     /** برش و فشرده‌سازی نهایی؛ مسیر فایل آماده برمی‌گردد. */
     fun cropAndCompress(rect: android.graphics.Rect, onDone: (String) -> Unit) {
