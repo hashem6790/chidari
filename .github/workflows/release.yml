@@ -48,6 +48,17 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > release.keystore
           echo "کلید بازسازی شد ($(stat -c%s release.keystore) بایت)"
 
+      - name: تعیین نام نسخه از روی تگ
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "name=$V" >> $GITHUB_OUTPUT
+          echo "نسخه‌ای که ساخته می‌شود: $V"
+
       - name: اجازه اجرا به gradlew
         run: chmod +x ./gradlew
 
@@ -56,6 +67,8 @@ jobs:
 
       - name: ساخت APK امضاشده
         env:
+          # نسخه از تگ می‌آید تا با نام Release یکی باشد
+          APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
           KEYSTORE_FILE: ../release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -69,14 +82,17 @@ jobs:
           $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs "$APK" \
             | grep -i "signer #1 certificate SHA-256" || echo "هشدار: امضا بررسی نشد"
 
-      - name: تعیین نام نسخه
-        id: ver
+      - name: تأیید یکسان بودن نسخه APK با تگ
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "name=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          INNER=$($ANDROID_HOME/build-tools/34.0.0/aapt2 dump badging "$APK" \
+                  | grep -oP "versionName='\K[^']+")
+          echo "نسخه داخل APK: $INNER | تگ: ${{ steps.ver.outputs.name }}"
+          if [ "$INNER" != "${{ steps.ver.outputs.name }}" ]; then
+            echo "::error::نسخه داخل APK با تگ یکی نیست — به‌روزرسان دچار حلقه می‌شود"
+            exit 1
           fi
+          echo "✅ هماهنگ است"
 
       - name: تغییر نام فایل خروجی
         run: |

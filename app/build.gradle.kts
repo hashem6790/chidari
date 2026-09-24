@@ -7,6 +7,27 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+/**
+ * نام نسخه: اگر متغیر محیطی APP_VERSION_NAME تنظیم باشد (توسط GitHub Actions
+ * از روی تگ)، همان استفاده می‌شود؛ وگرنه مقدار پیش‌فرض برای ساخت محلی.
+ */
+val appVersionName: String = System.getenv("APP_VERSION_NAME")?.trim()?.removePrefix("v")
+    ?.takeIf { it.isNotBlank() } ?: "2.0"
+
+/**
+ * کد نسخه به‌صورت عددی از روی نام نسخه ساخته می‌شود:
+ *   2.0   → 20000
+ *   2.1.3 → 20103
+ * همیشه صعودی است، پس اندروید نصب روی نسخه قبلی را می‌پذیرد.
+ */
+val appVersionCode: Int = appVersionName
+    .split(".", "-")
+    .mapNotNull { it.filter(Char::isDigit).toIntOrNull() }
+    .let { p ->
+        (p.getOrElse(0) { 0 } * 10000) + (p.getOrElse(1) { 0 } * 100) + p.getOrElse(2) { 0 }
+    }
+    .coerceAtLeast(11)   // هرگز پایین‌تر از آخرین نسخه منتشرشده نرود
+
 android {
     namespace = "ir.chidari"
     compileSdk = 34
@@ -41,8 +62,12 @@ android {
         applicationId = "ir.chidari"
         minSdk = 24
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.9"
+        // ---------- نسخه ----------
+        // در CI، نسخه از خودِ تگ گیت خوانده می‌شود (مثلاً v2.1 → 2.1).
+        // این کار جلوی ناهماهنگی نام تگ با نسخه داخل برنامه را می‌گیرد؛
+        // ناهماهنگی باعث می‌شد به‌روزرسان همیشه فکر کند نسخه تازه‌ای هست.
+        versionName = appVersionName
+        versionCode = appVersionCode
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
