@@ -3,6 +3,7 @@ package ir.chidari
 import android.app.Application
 import ir.chidari.data.auth.AuthClient
 import ir.chidari.data.local.AppDatabase
+import ir.chidari.data.image.ImageProcessor
 import ir.chidari.data.remote.RemoteDataSource
 import ir.chidari.data.remote.SyncManager
 import ir.chidari.data.update.UpdateChecker
@@ -23,4 +24,5 @@ class ChiDariApp : Application() {
     val remote: RemoteDataSource by lazy { RemoteDataSource(authClient) }
     val syncManager: SyncManager by lazy { SyncManager(database, remote) }
     val updateChecker: UpdateChecker by lazy { UpdateChecker(this) }
+    val imageProcessor: ImageProcessor by lazy { ImageProcessor(this) }
 }

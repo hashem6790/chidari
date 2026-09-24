@@ -174,6 +174,9 @@ dependencies {
     // شبکه (احراز هویت Supabase)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // خواندن چرخش EXIF عکس‌های دوربین
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+
     // بارگذاری تصاویر
     implementation("io.coil-kt:coil-compose:2.6.0")
 

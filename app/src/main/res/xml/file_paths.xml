@@ -4,4 +4,6 @@
     <!-- محل ذخیره فایل نصبی به‌روزرسانی -->
     <external-files-path name="updates" path="Download/" />
     <cache-path name="cache" path="." />
+    <!-- تصاویر محصولات و فایل موقت دوربین -->
+    <files-path name="images" path="product_images/" />
 </paths>

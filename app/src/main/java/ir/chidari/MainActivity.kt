@@ -73,7 +73,10 @@ import ir.chidari.ui.theme.ChiDariTheme
 import ir.chidari.util.Fa
 import ir.chidari.data.auth.AuthState
 import ir.chidari.ui.screens.AuthScreen
+import ir.chidari.ui.components.ImagePickerSheet
 import ir.chidari.ui.screens.BarcodeScannerScreen
+import ir.chidari.ui.screens.ImageCropScreen
+import ir.chidari.ui.vm.ProductImageState
 import ir.chidari.ui.screens.ProfileScreen
 import ir.chidari.ui.vm.AuthViewModel
 import ir.chidari.ui.vm.MainViewModel
@@ -173,6 +176,11 @@ private fun ChiDariRoot() {
     var showFilters by remember { mutableStateOf(false) }
     // بارکد خوانده‌شده که به فرم محصول برگردانده می‌شود
     var scannedBarcode by remember { mutableStateOf("") }
+    // تصویر آماده‌شده که به فرم محصول برمی‌گردد
+    var processedImage by remember { mutableStateOf("") }
+    var showImageSheet by remember { mutableStateOf(false) }
+    var cameraTarget by remember { mutableStateOf<android.net.Uri?>(null) }
+    val imageState by vm.imageState.collectAsStateWithLifecycle()
     // یک‌بار محاسبه می‌شود نه در هر رسم
     val ownedIds = remember(myStores) { myStores.map { it.id }.toSet() }
     var currentTab by remember { mutableStateOf(Tab.HOME) }
@@ -238,6 +246,67 @@ private fun ChiDariRoot() {
 
     // بررسی بی‌صدا هنگام اجرا: فقط اگر نسخه تازه‌ای باشد پنجره باز می‌شود
     LaunchedEffect(Unit) { vm.checkForUpdate(silent = true) }
+
+    // انتخاب از گالری
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { vm.prepareCrop(it) } }
+
+    // گرفتن عکس با دوربین
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { ok -> if (ok) cameraTarget?.let { vm.prepareCrop(it) } }
+
+    val cameraPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val f = vm.newCameraFile()
+            val u = androidx.core.content.FileProvider.getUriForFile(
+                ctx, "${ctx.packageName}.fileprovider", f
+            )
+            cameraTarget = u
+            cameraLauncher.launch(u)
+        } else vm.showMessage("بدون اجازه دوربین، امکان عکس گرفتن نیست")
+    }
+
+    if (showImageSheet) {
+        ImagePickerSheet(
+            hasImage = processedImage.isNotBlank(),
+            onGallery = { galleryLauncher.launch("image/*") },
+            onCamera = {
+                cameraPermLauncher.launch(android.Manifest.permission.CAMERA)
+            },
+            onRemove = {
+                vm.deleteImageFile(processedImage)
+                processedImage = ""
+            },
+            onDismiss = { showImageSheet = false }
+        )
+    }
+
+    // صفحه برش وقتی تصویری انتخاب شده باشد
+    val cropState = imageState
+    if (cropState is ProductImageState.Cropping || cropState is ProductImageState.Processing ||
+        cropState is ProductImageState.Loading
+    ) {
+        val c = cropState as? ProductImageState.Cropping
+        ImageCropScreen(
+            bitmap = c?.preview,
+            sourceWidth = c?.sourceWidth ?: 1,
+            sourceHeight = c?.sourceHeight ?: 1,
+            busy = cropState is ProductImageState.Processing,
+            onConfirm = { rect -> vm.cropAndCompress(rect) { processedImage = it } },
+            onBack = { vm.cancelImage() }
+        )
+        return
+    }
+    if (cropState is ProductImageState.Failed) {
+        LaunchedEffect(cropState) {
+            vm.showMessage(cropState.message)
+            vm.cancelImage()
+        }
+    }
 
     val startDestination = if (location.onboarded) Routes.MAIN else Routes.ONBOARDING
 
@@ -672,6 +741,9 @@ private fun ChiDariRoot() {
                     storeCategory = storeCategory,
                     scannedBarcode = scannedBarcode,
                     onScanBarcode = { navController.navigate(Routes.SCANNER) },
+                    processedImagePath = processedImage,
+                    onPickImage = { showImageSheet = true },
+                    onRemoveImage = { path -> vm.deleteImageFile(path); processedImage = "" },
                     onSave = { product ->
                         vm.saveProduct(product) { navController.popBackStack() }
                     },

@@ -27,7 +27,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import coil.compose.AsyncImage
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -40,7 +45,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +69,10 @@ fun ProductEditorScreen(
     /** بارکدی که از صفحه اسکن برگشته (خالی یعنی اسکنی انجام نشده). */
     scannedBarcode: String = "",
     onScanBarcode: () -> Unit,
+    /** مسیر تصویری که از صفحه برش برگشته (خالی = تغییری نکرده). */
+    processedImagePath: String = "",
+    onPickImage: () -> Unit,
+    onRemoveImage: (String) -> Unit,
     onSave: (ProductEntity) -> Unit,
     onBack: () -> Unit
 ) {
@@ -81,6 +89,12 @@ fun ProductEditorScreen(
     var discountText by remember { mutableStateOf(existing?.discountPercent?.takeIf { it > 0 }?.toString() ?: "") }
     var emoji by remember { mutableStateOf(existing?.emoji ?: "📦") }
     var barcode by remember { mutableStateOf(existing?.barcode ?: "") }
+    var imagePath by remember { mutableStateOf(existing?.imageUri ?: "") }
+
+    // تصویر تازه‌ی آماده‌شده از صفحه برش
+    LaunchedEffect(processedImagePath) {
+        if (processedImagePath.isNotBlank()) imagePath = processedImagePath
+    }
 
     // وقتی از صفحه اسکن برمی‌گردیم، کد را در فرم می‌گذاریم
     LaunchedEffect(scannedBarcode) {
@@ -130,6 +144,69 @@ fun ProductEditorScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
+            }
+
+            item {
+                // ---------- تصویر محصول ----------
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    onClick = onPickImage
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        if (imagePath.isNotBlank()) {
+                            AsyncImage(
+                                model = java.io.File(imagePath),
+                                contentDescription = "تصویر محصول",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(190.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onPickImage,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("تغییر تصویر") }
+                                OutlinedButton(
+                                    onClick = {
+                                        onRemoveImage(imagePath)
+                                        imagePath = ""
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("حذف") }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(140.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("📷", fontSize = 40.sp)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "افزودن تصویر محصول",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "گالری یا دوربین • برش و بهینه‌سازی خودکار",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             item {
@@ -317,6 +394,7 @@ fun ProductEditorScreen(
                                 discountPercent = discount,
                                 emoji = emoji,
                                 barcode = barcode.trim(),
+                                imageUri = imagePath,
                                 updatedAt = System.currentTimeMillis()
                             )
                         )

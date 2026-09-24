@@ -219,3 +219,75 @@ class RecompositionTest {
         )
     }
 }
+
+/**
+ * تست منطق موتور تصویر.
+ *
+ * خودِ فشرده‌سازی به اندروید نیاز دارد، ولی الگوریتم‌های محاسباتی
+ * (جست‌وجوی دودویی کیفیت و محدودسازی ابعاد) قابل بررسی مستقل‌اند.
+ */
+class ImageEngineTest {
+
+    /** همان منطق sampleSizeFor در ImageProcessor. */
+    private fun sampleSize(w: Int, h: Int, maxDim: Int): Int {
+        var s = 1
+        var longest = maxOf(w, h)
+        while (longest / 2 >= maxDim * 2) { longest /= 2; s *= 2 }
+        return s
+    }
+
+    @Test fun `sample size keeps large photos out of memory`() {
+        // عکس ۴۸ مگاپیکسلی گوشی امروزی
+        assertTrue("باید نمونه‌برداری شود", sampleSize(8000, 6000, 1600) >= 2)
+        // عکس کوچک نباید نمونه‌برداری شود
+        assertEquals(1, sampleSize(800, 600, 1600))
+    }
+
+    /** همان منطق limitDimension. */
+    private fun limit(w: Int, h: Int, maxDim: Int): Pair<Int, Int> {
+        val longest = maxOf(w, h)
+        if (longest <= maxDim) return w to h
+        val r = maxDim.toFloat() / longest
+        return (w * r).toInt() to (h * r).toInt()
+    }
+
+    @Test fun `resize never enlarges a small image`() {
+        // بزرگ‌نمایی فقط کیفیت را خراب می‌کند
+        assertEquals(640 to 480, limit(640, 480, 1600))
+    }
+
+    @Test fun `resize caps the longest side and keeps aspect ratio`() {
+        val (w, h) = limit(4000, 3000, 1600)
+        assertEquals(1600, w)
+        assertEquals(1200, h)
+        // نسبت ابعاد حفظ شود
+        assertEquals(4000.0 / 3000.0, w.toDouble() / h, 0.01)
+    }
+
+    @Test fun `portrait photos are capped on the long side too`() {
+        val (w, h) = limit(3000, 4000, 1600)
+        assertEquals(1600, h)
+        assertEquals(1200, w)
+    }
+
+    /** شبیه‌سازی جست‌وجوی دودویی کیفیت: باید بالاترین کیفیت زیر سقف را بیابد. */
+    @Test fun `quality search finds the highest quality under the cap`() {
+        // فرض: حجم خروجی خطی با کیفیت رابطه دارد (مدل ساده‌شده)
+        fun sizeAt(q: Int): Long = (q * 20_000L)      // کیفیت ۹۵ → ۱٫۹ م‌ب
+        val cap = 1024L * 1024L                        // ۱ مگابایت
+
+        var low = 40; var high = 95; var best = -1
+        while (low <= high) {
+            val mid = (low + high) / 2
+            if (sizeAt(mid) <= cap) { best = mid; low = mid + 1 } else high = mid - 1
+        }
+        assertTrue("باید کیفیتی پیدا شود", best > 0)
+        assertTrue("زیر سقف بماند", sizeAt(best) <= cap)
+        assertTrue("یک پله بالاتر باید از سقف رد شود", sizeAt(best + 1) > cap)
+    }
+
+    @Test fun `one megabyte cap constant is correct`() {
+        assertEquals(1024L * 1024L, ir.chidari.data.image.ImageProcessor.MAX_BYTES)
+        assertEquals(1600, ir.chidari.data.image.ImageProcessor.MAX_DIMENSION)
+    }
+}

@@ -24,6 +24,7 @@ import ir.chidari.data.prefs.UserLocation
 import ir.chidari.data.repo.ProductOffer
 import ir.chidari.data.repo.SortMode
 import ir.chidari.data.repo.StoreWithDistance
+import ir.chidari.data.image.ImageResult
 import ir.chidari.data.remote.SyncResult
 import ir.chidari.data.update.UpdateInfo
 import ir.chidari.data.update.UpdateResult
@@ -71,6 +72,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val sync = application.syncManager
     private val settingsRepo = application.settings
     private val updater = application.updateChecker
+    private val images = application.imageProcessor
 
     /**
      * حافظه‌ی جریان‌های وابسته به کلید.
@@ -666,6 +668,63 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun grantInstallPermission() = updater.openInstallPermissionSettings()
     fun openReleasesPage() = updater.openReleasesPage()
     fun dismissUpdate() { _updateState.value = UpdateUiState.Idle }
+
+    // ---------- تصویر محصول ----------
+
+    private val _imageState = MutableStateFlow<ProductImageState>(ProductImageState.Idle)
+    val imageState: StateFlow<ProductImageState> = _imageState.asStateFlow()
+
+    /** بارگذاری تصویر انتخاب‌شده برای نمایش در صفحه برش. */
+    fun prepareCrop(uri: android.net.Uri) {
+        viewModelScope.launch {
+            _imageState.value = ProductImageState.Loading
+            val bmp = images.loadForCrop(uri)
+            if (bmp == null) {
+                _imageState.value = ProductImageState.Failed("تصویر خوانده نشد.")
+                return@launch
+            }
+            val (w, h) = sourceSize(uri)
+            _imageState.value = ProductImageState.Cropping(uri, bmp, w, h)
+        }
+    }
+
+    /** ابعاد واقعی فایل اصلی، بدون بارگذاری کامل در حافظه. */
+    private fun sourceSize(uri: android.net.Uri): Pair<Int, Int> {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching {
+            getApplication<android.app.Application>().contentResolver.openInputStream(uri)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, o)
+            }
+        }
+        return (o.outWidth.takeIf { it > 0 } ?: 1) to (o.outHeight.takeIf { it > 0 } ?: 1)
+    }
+
+    /** برش و فشرده‌سازی نهایی؛ مسیر فایل آماده برمی‌گردد. */
+    fun cropAndCompress(rect: android.graphics.Rect, onDone: (String) -> Unit) {
+        val st = _imageState.value
+        if (st !is ProductImageState.Cropping) return
+        viewModelScope.launch {
+            _imageState.value = ProductImageState.Processing
+            when (val r = images.process(st.source, rect)) {
+                is ImageResult.Success -> {
+                    _imageState.value = ProductImageState.Idle
+                    showMessage(
+                        "تصویر آماده شد: ${Fa.number(r.width.toLong())}×${Fa.number(r.height.toLong())} " +
+                            "• ${Fa.digits(r.sizeLabel)}"
+                    )
+                    onDone(r.file.absolutePath)
+                }
+                is ImageResult.Error -> _imageState.value = ProductImageState.Failed(r.message)
+            }
+        }
+    }
+
+    fun cancelImage() { _imageState.value = ProductImageState.Idle }
+
+    fun deleteImageFile(path: String) = images.delete(path)
+
+    /** فایل موقت برای عکس دوربین. */
+    fun newCameraFile(): java.io.File = images.newCameraFile()
 
     fun showMessage(text: String) { _message.value = UiMessage(text) }
     fun clearMessage() { _message.value = null }
