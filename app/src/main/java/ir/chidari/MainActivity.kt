@@ -251,12 +251,22 @@ private fun ChiDariRoot() {
     // انتخاب از گالری
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { vm.prepareCrop(it) } }
+    ) { uri ->
+        uri?.let {
+            vm.prepareCrop(it)
+            navController.navigate(Routes.CROP)
+        }
+    }
 
     // گرفتن عکس با دوربین
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { ok -> if (ok) cameraTarget?.let { vm.prepareCrop(it) } }
+    ) { ok ->
+        if (ok) cameraTarget?.let {
+            vm.prepareCrop(it)
+            navController.navigate(Routes.CROP)
+        }
+    }
 
     val cameraPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -284,29 +294,6 @@ private fun ChiDariRoot() {
             },
             onDismiss = { showImageSheet = false }
         )
-    }
-
-    // صفحه برش وقتی تصویری انتخاب شده باشد
-    val cropState = imageState
-    if (cropState is ProductImageState.Cropping || cropState is ProductImageState.Processing ||
-        cropState is ProductImageState.Loading
-    ) {
-        val c = cropState as? ProductImageState.Cropping
-        ImageCropScreen(
-            bitmap = c?.preview,
-            sourceWidth = c?.sourceWidth ?: 1,
-            sourceHeight = c?.sourceHeight ?: 1,
-            busy = cropState is ProductImageState.Processing,
-            onConfirm = { rect -> vm.cropAndCompress(rect) { processedImage = it } },
-            onBack = { vm.cancelImage() }
-        )
-        return
-    }
-    if (cropState is ProductImageState.Failed) {
-        LaunchedEffect(cropState) {
-            vm.showMessage(cropState.message)
-            vm.cancelImage()
-        }
     }
 
     val startDestination = if (location.onboarded) Routes.MAIN else Routes.ONBOARDING
@@ -635,6 +622,33 @@ private fun ChiDariRoot() {
                 onBack = { navController.popBackStack() },
                 onOfferClick = { navController.navigate(Routes.product(it)) },
                 onStoreClick = { navController.navigate(Routes.store(it)) }
+            )
+        }
+
+        // ----- برش تصویر -----
+        composable(Routes.CROP) {
+            val st = imageState
+            // خطا: پیام بده و برگرد
+            LaunchedEffect(st) {
+                if (st is ProductImageState.Failed) {
+                    vm.showMessage(st.message)
+                    vm.cancelImage()
+                    navController.popBackStack()
+                }
+            }
+            val c = st as? ProductImageState.Cropping
+            ImageCropScreen(
+                bitmap = c?.preview,
+                sourceWidth = c?.sourceWidth ?: 1,
+                sourceHeight = c?.sourceHeight ?: 1,
+                busy = st is ProductImageState.Processing,
+                onConfirm = { rect ->
+                    vm.cropAndCompress(rect) { path ->
+                        processedImage = path
+                        navController.popBackStack()
+                    }
+                },
+                onBack = { vm.cancelImage(); navController.popBackStack() }
             )
         }
 

@@ -67,6 +67,7 @@ import ir.chidari.data.local.StoreEntity
 import ir.chidari.ui.components.DiscountBadge
 import ir.chidari.ui.components.DistanceBadge
 import ir.chidari.ui.components.EmojiAvatar
+import ir.chidari.ui.components.ImageOrEmoji
 import ir.chidari.util.Navigation
 import ir.chidari.ui.components.EmptyState
 import ir.chidari.ui.components.RatingBadge
@@ -188,7 +189,8 @@ fun StoreDetailScreen(
                         .padding(16.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        EmojiAvatar(
+                        ImageOrEmoji(
+                            imageUrl = store.imageUri,
                             emoji = store.coverEmoji,
                             size = 76,
                             background = MaterialTheme.colorScheme.surface
@@ -492,7 +494,12 @@ private fun StoreProductRow(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            EmojiAvatar(product.emoji, 50, background = MaterialTheme.colorScheme.surfaceVariant)
+            ImageOrEmoji(
+                imageUrl = product.imageUri,
+                emoji = product.emoji,
+                size = 50,
+                background = MaterialTheme.colorScheme.surfaceVariant
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(

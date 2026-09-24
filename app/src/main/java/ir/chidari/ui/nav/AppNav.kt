@@ -12,6 +12,7 @@ object Routes {
     const val COMPARE = "compare/{title}"
     const val AUTH = "auth"
     const val SCANNER = "scanner"
+    const val CROP = "crop"
     const val STORE_EDITOR = "store_editor?storeId={storeId}"
     const val PRODUCT_EDITOR = "product_editor?storeId={storeId}&productId={productId}"
 

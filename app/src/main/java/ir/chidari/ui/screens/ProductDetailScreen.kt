@@ -48,6 +48,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -141,7 +143,21 @@ fun ProductDetailScreen(
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(p.emoji, fontSize = 64.sp)
+                    // تصویر محصول اگر آپلود شده باشد، وگرنه ایموجی
+                    if (p.imageUri.isNotBlank() && Fa.loadImages) {
+                        coil.compose.AsyncImage(
+                            model = if (p.imageUri.startsWith("http")) p.imageUri
+                                    else java.io.File(p.imageUri),
+                            contentDescription = p.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                    } else {
+                        Text(p.emoji, fontSize = 64.sp)
+                    }
                     Spacer(Modifier.height(10.dp))
                     Text(
                         p.title,
