@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
             Fa.confirmBeforeCall = settings.confirmBeforeCall
             Fa.showDistanceOnCards = settings.showDistanceOnCards
             Fa.showRatings = settings.showRatings
+            Fa.loadImages = settings.loadImages
             Fa.distanceUnitMode = when (settings.distanceUnit) {
                 ir.chidari.data.prefs.DistanceUnit.KM -> 1
                 ir.chidari.data.prefs.DistanceUnit.METER -> 2

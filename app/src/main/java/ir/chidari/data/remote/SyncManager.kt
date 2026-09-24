@@ -221,7 +221,26 @@ class SyncManager(
         return Result.success(Unit)
     }
 
-    suspend fun pushProduct(product: ProductEntity): Result<ProductEntity> {
+    /**
+     * اگر تصویر محصول هنوز روی گوشی است، اول روی سرور بارگذاری می‌شود.
+     *
+     * مسیر محلی (مثل /data/.../product_123.jpg) برای کاربران دیگر بی‌معناست؛
+     * باید به نشانی عمومی سرور تبدیل شود تا همه ببینند.
+     */
+    private suspend fun uploadImageIfLocal(product: ProductEntity, userId: String): ProductEntity {
+        val path = product.imageUri
+        if (path.isBlank() || path.startsWith("http")) return product   // از قبل روی سرور است
+        if (!remote.isConfigured || userId.isBlank()) return product     // حالت آفلاین
+
+        val f = java.io.File(path)
+        if (!f.exists()) return product.copy(imageUri = "")
+
+        return remote.uploadProductImage(f, userId)
+            .map { url -> product.copy(imageUri = url) }
+            .getOrElse { throw it }                                      // خطا به لایه بالا برود
+    }
+
+    suspend fun pushProduct(product: ProductEntity, userId: String = ""): Result<ProductEntity> {
         if (!remote.isConfigured) {
             val local = product.copy(isSynced = false)
             val id = if (local.id == 0L) productDao.insert(local)
@@ -229,14 +248,21 @@ class SyncManager(
             return Result.success(local.copy(id = id))
         }
 
-        return if (product.id == 0L) {
-            remote.createProduct(product).mapCatching { created ->
+        // تصویر پیش از ثبت محصول بارگذاری می‌شود
+        val withImage = try {
+            uploadImageIfLocal(product, userId)
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+
+        return if (withImage.id == 0L) {
+            remote.createProduct(withImage).mapCatching { created ->
                 productDao.insert(created)
                 created
             }
         } else {
-            remote.updateProduct(product).mapCatching {
-                val local = product.copy(isSynced = true)
+            remote.updateProduct(withImage).mapCatching {
+                val local = withImage.copy(isSynced = true)
                 productDao.update(local)
                 local
             }

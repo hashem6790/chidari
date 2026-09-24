@@ -9,8 +9,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -304,6 +306,80 @@ class RemoteDataSource(private val auth: AuthClient) {
             Result.success(Unit)
         }
 
+    // ================= تصاویر (Supabase Storage) =================
+
+    private val storageUrl: String
+        get() = "${SupabaseConfig.URL.trimEnd('/')}/storage/v1"
+
+    /**
+     * بارگذاری تصویر محصول روی سرور.
+     *
+     * فایل در مسیر `{userId}/{نام یکتا}.jpg` ذخیره می‌شود؛ سیاست‌های
+     * سرور اجازه می‌دهند هر کاربر فقط داخل پوشه خودش بنویسد.
+     *
+     * نشانی عمومی فایل برگردانده می‌شود تا در جدول محصولات ذخیره شود.
+     */
+    suspend fun uploadProductImage(file: File, userId: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            if (!isConfigured) return@withContext Result.failure(IllegalStateException(NOT_CONFIGURED))
+            if (!file.exists()) return@withContext Result.failure(IOException("فایل تصویر پیدا نشد."))
+
+            val token = token()
+                ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))
+
+            val objectPath = "$userId/${System.currentTimeMillis()}_${file.name}"
+            val body = file.asRequestBody("image/jpeg".toMediaType())
+
+            val req = Request.Builder()
+                .url("$storageUrl/object/$BUCKET/$objectPath")
+                .addHeader("apikey", SupabaseConfig.ANON_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "image/jpeg")
+                // اگر فایلی با همین نام بود، جایگزین شود
+                .addHeader("x-upsert", "true")
+                .post(body)
+                .build()
+
+            val r = try {
+                http.newCall(req).execute().use { Res(it.code, it.body?.string().orEmpty()) }
+            } catch (e: IOException) {
+                Res(0, e.javaClass.simpleName + ": " + e.message.orEmpty())
+            }
+
+            if (!r.ok) {
+                val msg = when {
+                    r.code == 404 || r.body.contains("Bucket not found", true) ->
+                        "فضای ذخیره تصاویر روی سرور ساخته نشده. فایل supabase-storage.sql را اجرا کنید."
+                    r.code == 413 || r.body.contains("too large", true) ->
+                        "حجم تصویر بیش از حد مجاز است."
+                    r.code == 401 || r.code == 403 ->
+                        "اجازه بارگذاری ندارید. دوباره وارد شوید."
+                    else -> errorOf(r)
+                }
+                return@withContext Result.failure(IOException(msg))
+            }
+
+            Result.success("$storageUrl/object/public/$BUCKET/$objectPath")
+        }
+
+    /** حذف تصویر از سرور (هنگام برداشتن عکس محصول). */
+    suspend fun deleteProductImage(publicUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!isConfigured || !publicUrl.contains("/object/public/$BUCKET/")) {
+            return@withContext Result.success(Unit)
+        }
+        val token = token() ?: return@withContext Result.success(Unit)
+        val objectPath = publicUrl.substringAfter("/object/public/$BUCKET/")
+
+        val req = Request.Builder()
+            .url("$storageUrl/object/$BUCKET/$objectPath")
+            .addHeader("apikey", SupabaseConfig.ANON_KEY)
+            .addHeader("Authorization", "Bearer $token")
+            .delete()
+            .build()
+        runCatching { http.newCall(req).execute().close() }
+        Result.success(Unit)
+    }
+
     /** بررسی اینکه جدول‌ها روی سرور ساخته شده‌اند یا نه. */
     suspend fun checkSchema(): Result<Boolean> = withContext(Dispatchers.IO) {
         if (!isConfigured) return@withContext Result.failure(IllegalStateException(NOT_CONFIGURED))
@@ -314,6 +390,9 @@ class RemoteDataSource(private val auth: AuthClient) {
     }
 
     companion object {
+        /** نام سطل ذخیره تصاویر روی Supabase Storage. */
+        const val BUCKET = "product-images"
+
         const val NOT_CONFIGURED = "اتصال به سرور تنظیم نشده است."
         const val NEEDS_LOGIN = "برای این کار باید وارد حساب خود شوید."
     }

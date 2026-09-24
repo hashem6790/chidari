@@ -58,7 +58,8 @@ fun StoreCard(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            EmojiAvatar(
+            ImageOrEmoji(
+                imageUrl = s.imageUri,
                 emoji = s.coverEmoji,
                 size = 58,
                 background = if (highlighted) MaterialTheme.colorScheme.surface
@@ -145,7 +146,8 @@ fun ProductCard(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.Top
         ) {
-            EmojiAvatar(
+            ImageOrEmoji(
+                imageUrl = p.imageUri,
                 emoji = p.emoji,
                 size = 54,
                 background = MaterialTheme.colorScheme.surfaceVariant

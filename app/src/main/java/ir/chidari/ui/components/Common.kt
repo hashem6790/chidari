@@ -215,6 +215,33 @@ fun EmojiAvatar(
 }
 
 /**
+ * آواتار محصول یا فروشگاه: اگر تصویری باشد نمایش داده می‌شود،
+ * وگرنه ایموجی پیش‌فرض. هم مسیر محلی و هم نشانی سرور را می‌پذیرد.
+ */
+@Composable
+fun ImageOrEmoji(
+    imageUrl: String,
+    emoji: String,
+    size: Int = 56,
+    modifier: Modifier = Modifier,
+    background: Color = MaterialTheme.colorScheme.primaryContainer
+) {
+    if (imageUrl.isBlank() || !Fa.loadImages) {
+        EmojiAvatar(emoji = emoji, size = size, modifier = modifier, background = background)
+        return
+    }
+    coil.compose.AsyncImage(
+        model = if (imageUrl.startsWith("http")) imageUrl else java.io.File(imageUrl),
+        contentDescription = null,
+        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        modifier = modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(background)
+    )
+}
+
+/**
  * نشان تخفیف.
  * اگر کاربر در تنظیمات «نشان تخفیف» را خاموش کرده باشد، چیزی نمایش داده نمی‌شود.
  */

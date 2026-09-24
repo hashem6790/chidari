@@ -525,7 +525,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveProduct(product: ProductEntity, onSaved: () -> Unit = {}) {
         viewModelScope.launch {
             _saving.value = true
-            sync.pushProduct(product)
+            val hasNewImage = product.imageUri.isNotBlank() && !product.imageUri.startsWith("http")
+            if (hasNewImage) showMessage("در حال بارگذاری تصویر…")
+
+            sync.pushProduct(product, _userId.value)
                 .onSuccess {
                     showMessage(if (product.id == 0L) "محصول اضافه شد" else "محصول به‌روزرسانی شد")
                     onSaved()

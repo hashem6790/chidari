@@ -19,6 +19,7 @@ object Fa {
     @Volatile var confirmBeforeCall: Boolean = false
     @Volatile var showDistanceOnCards: Boolean = true
     @Volatile var showRatings: Boolean = true
+    @Volatile var loadImages: Boolean = true
 
     /** تبدیل ارقام لاتین به فارسی (در صورت فعال بودن تنظیم). */
     fun digits(input: String): String {
