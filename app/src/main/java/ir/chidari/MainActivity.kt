@@ -5,17 +5,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,10 +28,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,6 +43,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import ir.chidari.data.local.ProductEntity
 import ir.chidari.data.local.StoreEntity
@@ -176,11 +184,23 @@ private fun ChiDariRoot() {
 
     var showFilters by remember { mutableStateOf(false) }
     // بارکد خوانده‌شده که به فرم محصول برگردانده می‌شود
-    var scannedBarcode by remember { mutableStateOf("") }
-    // تصویر آماده‌شده که به فرم محصول برمی‌گردد
-    var processedImage by remember { mutableStateOf("") }
-    var showImageSheet by remember { mutableStateOf(false) }
-    var cameraTarget by remember { mutableStateOf<android.net.Uri?>(null) }
+    var scannedBarcode by rememberSaveable { mutableStateOf("") }
+    /*
+     * این سه مقدار باید از «بازسازی اکتیویتی» جان سالم به در ببرند.
+     *
+     * وقتی دوربین یا گالری باز می‌شود، سیستم ممکن است اکتیویتی ما را از بین
+     * ببرد (کمبود حافظه، چرخش صفحه، یا گزینه «Don't keep activities»). با
+     * remember ساده، `cameraTarget` پس از بازگشت null می‌شد و شرط
+     * `cameraTarget?.let { ... }` هیچ‌وقت اجرا نمی‌شد — یعنی عکس گرفته
+     * می‌شد ولی هیچ اتفاقی نمی‌افتاد. rememberSaveable این را رفع می‌کند.
+     */
+    var processedImage by rememberSaveable { mutableStateOf("") }
+    var showImageSheet by rememberSaveable { mutableStateOf(false) }
+    var cameraTargetStr by rememberSaveable { mutableStateOf("") }
+    val cameraTarget: android.net.Uri? =
+        remember(cameraTargetStr) {
+            cameraTargetStr.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
+        }
     val imageState by vm.imageState.collectAsStateWithLifecycle()
     // یک‌بار محاسبه می‌شود نه در هر رسم
     val ownedIds = remember(myStores) { myStores.map { it.id }.toSet() }
@@ -226,9 +246,19 @@ private fun ChiDariRoot() {
         }
     }
 
+    /*
+     * باگی که رفع شد: تنها SnackbarHost برنامه داخل Scaffold صفحه اصلی بود.
+     * وقتی روی صفحه‌ی دیگری بودیم (مثلاً فرم محصول یا صفحه برش)، هیچ میزبانی
+     * برای نمایش پیام وجود نداشت؛ `showSnackbar` تا ابد معلق می‌ماند، پس
+     * `clearMessage()` هم اجرا نمی‌شد و **همه‌ی پیام‌های بعدی هم بلعیده
+     * می‌شدند**. نتیجه: خطاها بی‌صدا ناپدید می‌شدند.
+     * حالا میزبان در ریشه است و یک مهلت زمانی هم گذاشته‌ایم تا صف هرگز قفل نشود.
+     */
     LaunchedEffect(message) {
         message?.let {
-            snackbarHost.showSnackbar(it.text)
+            kotlinx.coroutines.withTimeoutOrNull(6_000) {
+                snackbarHost.showSnackbar(it.text, duration = SnackbarDuration.Short)
+            }
             vm.clearMessage()
         }
     }
@@ -248,23 +278,35 @@ private fun ChiDariRoot() {
     // بررسی بی‌صدا هنگام اجرا: فقط اگر نسخه تازه‌ای باشد پنجره باز می‌شود
     LaunchedEffect(Unit) { vm.checkForUpdate(silent = true) }
 
-    // انتخاب از گالری
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            vm.prepareCrop(it)
-            navController.navigate(Routes.CROP)
+    /** رفتن به صفحه برش بدون ثبت دوباره‌ی مقصد (اگر از قبل آنجا باشیم). */
+    fun openCropFor(uri: android.net.Uri) {
+        vm.prepareCrop(uri)
+        if (navController.currentDestination?.route != Routes.CROP) {
+            navController.navigate(Routes.CROP) { launchSingleTop = true }
         }
     }
+
+    // انتخاب از گالری — انتخابگر تصویر اندروید ۱۳+ و در غیر این صورت GetContent
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let { openCropFor(it) } }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let { openCropFor(it) } }
 
     // گرفتن عکس با دوربین
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
-        if (ok) cameraTarget?.let {
-            vm.prepareCrop(it)
-            navController.navigate(Routes.CROP)
+        val target = cameraTarget
+        if (!ok) {
+            // کاربر انصراف داد یا دوربین نتوانست ذخیره کند
+            if (target != null) vm.showMessage("عکسی گرفته نشد")
+        } else if (target == null) {
+            vm.showMessage("مسیر عکس دوربین گم شد. دوباره تلاش کنید.")
+        } else {
+            openCropFor(target)
         }
     }
 
@@ -272,19 +314,43 @@ private fun ChiDariRoot() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            val f = vm.newCameraFile()
-            val u = androidx.core.content.FileProvider.getUriForFile(
-                ctx, "${ctx.packageName}.fileprovider", f
-            )
-            cameraTarget = u
-            cameraLauncher.launch(u)
+            runCatching {
+                val f = vm.newCameraFile()
+                val u = androidx.core.content.FileProvider.getUriForFile(
+                    ctx, "${ctx.packageName}.fileprovider", f
+                )
+                cameraTargetStr = u.toString()
+                cameraLauncher.launch(u)
+            }.onFailure {
+                vm.showMessage("دوربین باز نشد: ${it.message ?: "برنامه دوربین پیدا نشد"}")
+            }
         } else vm.showMessage("بدون اجازه دوربین، امکان عکس گرفتن نیست")
     }
 
     if (showImageSheet) {
         ImagePickerSheet(
             hasImage = processedImage.isNotBlank(),
-            onGallery = { galleryLauncher.launch("image/*") },
+            onGallery = {
+                // اگر انتخابگر تصویر سیستمی موجود باشد (اندروید ۱۳+ و بسیاری از
+                // گوشی‌های قدیمی‌تر با Google Play)، امن‌تر و بدون نیاز به مجوز است
+                runCatching {
+                    if (ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(ctx)) {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    } else {
+                        galleryLauncher.launch("image/*")
+                    }
+                }.onFailure {
+                    // اگر انتخابگر نبود، به روش کلاسیک برمی‌گردیم
+                    runCatching { galleryLauncher.launch("image/*") }
+                        .onFailure { e ->
+                            vm.showMessage("برنامه‌ای برای انتخاب تصویر پیدا نشد (${e.message ?: ""})")
+                        }
+                }
+            },
             onCamera = {
                 cameraPermLauncher.launch(android.Manifest.permission.CAMERA)
             },
@@ -297,6 +363,11 @@ private fun ChiDariRoot() {
     }
 
     val startDestination = if (location.onboarded) Routes.MAIN else Routes.ONBOARDING
+
+    val backEntry by navController.currentBackStackEntryAsState()
+    val onMainScreen = backEntry?.destination?.route == Routes.MAIN
+
+    Box(Modifier.fillMaxSize()) {
 
     NavHost(navController = navController, startDestination = startDestination) {
 
@@ -400,7 +471,6 @@ private fun ChiDariRoot() {
             }
           ) {
             Scaffold(
-                snackbarHost = { SnackbarHost(snackbarHost) },
                 topBar = {
                     CenterAlignedTopAppBar(
                         title = { Text(currentTab.label, fontSize = 16.sp) },
@@ -628,20 +698,24 @@ private fun ChiDariRoot() {
         // ----- برش تصویر -----
         composable(Routes.CROP) {
             val st = imageState
-            // خطا: پیام بده و برگرد
+
+            /*
+             * اگر برنامه در پس‌زمینه بازسازی شده باشد، این مقصد از پشته
+             * برمی‌گردد ولی حالت تصویر Idle است (بیت‌مپ در ViewModel نبوده).
+             * در آن صورت به‌جای چرخ بی‌پایان، برمی‌گردیم.
+             */
             LaunchedEffect(st) {
-                if (st is ProductImageState.Failed) {
-                    vm.showMessage(st.message)
-                    vm.cancelImage()
-                    navController.popBackStack()
-                }
+                if (st is ProductImageState.Idle) navController.popBackStack()
             }
+
             val c = st as? ProductImageState.Cropping
             ImageCropScreen(
                 bitmap = c?.preview,
                 sourceWidth = c?.sourceWidth ?: 1,
                 sourceHeight = c?.sourceHeight ?: 1,
                 busy = st is ProductImageState.Processing,
+                // خطا دیگر بی‌صدا نیست: روی همین صفحه نشان داده می‌شود
+                error = (st as? ProductImageState.Failed)?.message,
                 onConfirm = { rect ->
                     vm.cropAndCompress(rect) { path ->
                         processedImage = path
@@ -768,5 +842,17 @@ private fun ChiDariRoot() {
                 )
             }
         }
+    }
+
+    // ----- میزبان پیام‌ها: روی همه‌ی صفحه‌ها، نه فقط صفحه اصلی -----
+    SnackbarHost(
+        hostState = snackbarHost,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .imePadding()
+            // روی صفحه اصلی بالاتر از نوار پایین بنشیند
+            .padding(bottom = if (onMainScreen) 76.dp else 8.dp)
+    )
     }
 }

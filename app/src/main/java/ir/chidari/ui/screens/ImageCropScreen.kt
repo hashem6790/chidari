@@ -85,6 +85,8 @@ fun ImageCropScreen(
     sourceWidth: Int,
     sourceHeight: Int,
     busy: Boolean,
+    /** اگر باز کردن تصویر شکست خورده باشد، متن خطا؛ وگرنه null. */
+    error: String? = null,
     onConfirm: (Rect) -> Unit,
     onBack: () -> Unit
 ) {
@@ -128,9 +130,52 @@ fun ImageCropScreen(
                 .padding(padding)
                 .background(Color(0xFF1B1B1B))
         ) {
+            // ---------- خطا ----------
+            if (error != null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("⚠️", fontSize = 40.sp)
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "تصویر باز نشد",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            error,
+                            color = Color(0xFFDDDDDD),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = onBack,
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text("بازگشت") }
+                    }
+                }
+                return@Column
+            }
+
+            // ---------- در حال آماده‌سازی ----------
             if (bitmap == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color.White)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.White)
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "در حال باز کردن تصویر…",
+                            color = Color(0xFFCCCCCC),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
                 return@Column
             }

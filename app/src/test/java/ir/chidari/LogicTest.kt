@@ -229,19 +229,65 @@ class RecompositionTest {
  */
 class ImageEngineTest {
 
-    /** همان منطق sampleSizeFor در ImageProcessor. */
+    /** همان منطق sampleSizeFor در ImageProcessor (نسخه اصلاح‌شده). */
     private fun sampleSize(w: Int, h: Int, maxDim: Int): Int {
+        if (maxDim <= 0) return 1
+        val longest = maxOf(w, h)
         var s = 1
-        var longest = maxOf(w, h)
-        while (longest / 2 >= maxDim * 2) { longest /= 2; s *= 2 }
+        while (longest / (s * 2) >= maxDim) s *= 2
         return s
     }
+
+    /** حافظه‌ی بیت‌مپ ARGB_8888 بر حسب مگابایت. */
+    private fun megabytes(w: Int, h: Int, sample: Int): Double =
+        (w / sample).toDouble() * (h / sample) * 4 / (1024 * 1024)
 
     @Test fun `sample size keeps large photos out of memory`() {
         // عکس ۴۸ مگاپیکسلی گوشی امروزی
         assertTrue("باید نمونه‌برداری شود", sampleSize(8000, 6000, 1600) >= 2)
         // عکس کوچک نباید نمونه‌برداری شود
         assertEquals(1, sampleSize(800, 600, 1600))
+    }
+
+    /**
+     * رگرسیون باگ «باز نشدن ویرایشگر تصویر».
+     *
+     * فرمول قبلی فقط وقتی نمونه‌برداری می‌کرد که بلندترین ضلع دست‌کم چهار
+     * برابر حد مجاز بود. یک عکس معمولی ۱۲ مگاپیکسلی با ضریب ۱ باز می‌شد:
+     * ۴۶ مگابایت، و با نسخه‌ی چرخش‌یافته ~۹۲ مگابایت → OutOfMemoryError →
+     * تصویر null می‌شد و صفحه برش هرگز باز نمی‌شد.
+     */
+    @Test fun `typical 12MP phone photo is downsampled for the crop preview`() {
+        val s = sampleSize(4000, 3000, 1200)
+        assertTrue("عکس ۱۲ مگاپیکسلی باید نمونه‌برداری شود، نه اینکه کامل باز شود", s >= 2)
+        // اوج مصرف = بیت‌مپ + نسخه چرخیده
+        val peak = megabytes(4000, 3000, s) * 2
+        assertTrue("اوج مصرف حافظه باید زیر ۳۲ مگابایت بماند ولی $peak بود", peak < 32.0)
+    }
+
+    @Test fun `old sample size formula would have blown the heap`() {
+        // فرمول معیوب قبلی، برای اثبات اینکه واقعاً ریشه‌ی باگ بود
+        fun old(w: Int, h: Int, maxDim: Int): Int {
+            var s = 1; var l = maxOf(w, h)
+            while (l / 2 >= maxDim * 2) { l /= 2; s *= 2 }
+            return s
+        }
+        assertEquals("فرمول قبلی عکس ۱۲ مگاپیکسلی را اصلاً کوچک نمی‌کرد", 1, old(4000, 3000, 1200))
+        assertTrue("و بیش از ۹۰ مگابایت حافظه می‌خواست", megabytes(4000, 3000, 1) * 2 > 90.0)
+    }
+
+    @Test fun `downsampled image still stays above the target size`() {
+        // نباید آنقدر کوچک شود که کیفیت نهایی از دست برود
+        for ((w, h) in listOf(4000 to 3000, 3000 to 4000, 8000 to 6000, 2560 to 1920)) {
+            val s = sampleSize(w, h, 1600)
+            val longest = maxOf(w, h) / s
+            assertTrue("بعد از نمونه‌برداری ($w×$h) باید ≥ ۱۶۰۰ بماند ولی $longest شد", longest >= 1600)
+        }
+    }
+
+    @Test fun `small images are never downsampled`() {
+        assertEquals(1, sampleSize(1200, 1600, 1600))
+        assertEquals(1, sampleSize(640, 480, 1200))
     }
 
     /** همان منطق limitDimension. */

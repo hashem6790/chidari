@@ -31,6 +31,12 @@ sealed interface ImageResult {
     data class Error(val message: String) : ImageResult
 }
 
+/** نتیجه باز کردن تصویر برای صفحه برش. */
+sealed interface ImageLoad {
+    data class Success(val bitmap: Bitmap) : ImageLoad
+    data class Failure(val message: String) : ImageLoad
+}
+
 /**
  * موتور آماده‌سازی تصویر محصول.
  *
@@ -167,13 +173,46 @@ class ImageProcessor(private val context: Context) {
         }.getOrDefault(bitmap)
     }
 
-    /** فقط خواندن تصویر برای نمایش در صفحه برش (با اندازه کنترل‌شده). */
-    suspend fun loadForCrop(source: Uri, maxDimension: Int = CROP_PREVIEW): Bitmap? =
+    /**
+     * فقط خواندن تصویر برای نمایش در صفحه برش (با اندازه کنترل‌شده).
+     *
+     * خطا **بلعیده نمی‌شود**: هر شکستی با پیام فارسی و یک کد کوتاه برمی‌گردد
+     * تا کاربر بداند چرا صفحه برش باز نشد (پیش‌تر `null` برمی‌گشت و هیچ
+     * نشانه‌ای دیده نمی‌شد).
+     */
+    suspend fun loadForCrop(source: Uri, maxDimension: Int = CROP_PREVIEW): ImageLoad =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val bmp = decodeScaled(source, maxDimension, null) ?: return@runCatching null
-                rotate(bmp, readRotation(source))
-            }.getOrNull()
+            // ۱) آیا اصلاً می‌شود فایل را باز کرد؟
+            val canOpen = runCatching {
+                context.contentResolver.openInputStream(source)?.use { true } ?: false
+            }
+            if (canOpen.isFailure) {
+                return@withContext ImageLoad.Failure(
+                    "دسترسی به این تصویر ممکن نشد. تصویر دیگری را امتحان کنید. (کد ۱)"
+                )
+            }
+            if (canOpen.getOrDefault(false) != true) {
+                return@withContext ImageLoad.Failure(
+                    "فایل تصویر پیدا نشد یا اجازه خواندن آن داده نشد. (کد ۲)"
+                )
+            }
+
+            // ۲) رمزگشایی کم‌حافظه
+            val bmp = try {
+                decodeScaled(source, maxDimension, null)
+            } catch (e: OutOfMemoryError) {
+                return@withContext ImageLoad.Failure(
+                    "حافظه گوشی برای باز کردن این تصویر کافی نبود. (کد ۳)"
+                )
+            } catch (e: Exception) {
+                return@withContext ImageLoad.Failure(
+                    "خواندن تصویر ناموفق بود: ${e.message ?: "نامشخص"} (کد ۴)"
+                )
+            } ?: return@withContext ImageLoad.Failure(
+                "قالب این تصویر پشتیبانی نمی‌شود یا فایل خراب است. (کد ۵)"
+            )
+
+            ImageLoad.Success(rotate(bmp, readRotation(source)))
         }
 
     // ---------------- مراحل داخلی ----------------
@@ -196,35 +235,64 @@ class ImageProcessor(private val context: Context) {
         val targetW = cropRect?.width() ?: bounds.outWidth
         val targetH = cropRect?.height() ?: bounds.outHeight
 
-        val opts = BitmapFactory.Options().apply {
-            inSampleSize = sampleSizeFor(targetW, targetH, maxDim)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
+        var sample = sampleSizeFor(targetW, targetH, maxDim)
 
-        // برش ناحیه‌ای: فقط بخش انتخاب‌شده رمزگشایی می‌شود (کم‌مصرف‌تر)
-        if (cropRect != null) {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val region = BitmapRegionDecoderCompat.create(stream) ?: return@use
-                return runCatching { region.decodeRegion(cropRect, opts) }
-                    .also { region.recycle() }
-                    .getOrNull()
+        /*
+         * تلاش چندباره: اگر با وجود نمونه‌برداری باز هم حافظه کم آمد،
+         * ضریب دو برابر می‌شود و دوباره امتحان می‌کنیم. روی گوشی‌های
+         * کم‌حافظه این تفاوت «باز شدن» و «باز نشدن» تصویر است.
+         */
+        repeat(MAX_DECODE_ATTEMPTS) {
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-        }
-
-        return context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, opts)
-        }
-    }
-
-    /** بزرگ‌ترین توان ۲ که تصویر را زیر حد مطلوب می‌آورد. */
-    private fun sampleSizeFor(w: Int, h: Int, maxDim: Int): Int {
-        var sample = 1
-        var longest = maxOf(w, h)
-        // تا دو برابر حد مجاز پایین می‌آییم تا جا برای تغییر اندازه دقیق بماند
-        while (longest / 2 >= maxDim * 2) {
-            longest /= 2
+            try {
+                val bmp = if (cropRect != null) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val region = BitmapRegionDecoderCompat.create(stream)
+                        if (region == null) null
+                        else try {
+                            region.decodeRegion(cropRect, opts)
+                        } finally {
+                            region.recycle()
+                        }
+                    }
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, opts)
+                    }
+                }
+                if (bmp != null) return bmp
+            } catch (e: OutOfMemoryError) {
+                // در تلاش بعدی با نصفِ ابعاد امتحان می‌کنیم
+                System.gc()
+            }
             sample *= 2
         }
+        return null
+    }
+
+    /**
+     * بزرگ‌ترین توان ۲ که تصویر رمزگشایی‌شده را **کوچک‌تر از دو برابر**
+     * حد مجاز نگه می‌دارد.
+     *
+     * باگی که رفع شد: شرط قبلی (`longest / 2 >= maxDim * 2`) فقط وقتی
+     * نمونه‌برداری می‌کرد که بلندترین ضلع دست‌کم **چهار برابر** حد مجاز
+     * بود. یعنی یک عکس معمولی ۱۲ مگاپیکسلی (۴۰۰۰×۳۰۰۰) با ضریب ۱ و در
+     * ابعاد کامل باز می‌شد: ۴۶ مگابایت در حافظه، و چون بعدش برای اصلاح
+     * چرخش یک نسخه دیگر ساخته می‌شد، اوج مصرف به ~۹۲ مگابایت می‌رسید.
+     * سهمیه حافظه بیشتر گوشی‌ها کمتر از این است → OutOfMemoryError →
+     * تصویر خوانده نمی‌شد و صفحه برش هرگز باز نمی‌شد.
+     *
+     * حالا همان عکس با ضریب ۲ (۲۰۰۰×۱۵۰۰ ≈ ۱۱ مگابایت) باز می‌شود که
+     * هم از حد ۱۶۰۰ پیکسل بزرگ‌تر است (کیفیت حفظ می‌شود) و هم امن است.
+     */
+    internal fun sampleSizeFor(w: Int, h: Int, maxDim: Int): Int {
+        if (maxDim <= 0) return 1
+        val longest = maxOf(w, h)
+        var sample = 1
+        while (longest / (sample * 2) >= maxDim) sample *= 2
         return sample
     }
 
@@ -317,6 +385,9 @@ class ImageProcessor(private val context: Context) {
 
         /** اندازه پیش‌نمایش در صفحه برش (کم‌حافظه ولی روان). */
         const val CROP_PREVIEW = 1200
+
+        /** چند بار با ضریب نمونه‌برداری بزرگ‌تر تلاش کنیم تا حافظه کم نیاید. */
+        const val MAX_DECODE_ATTEMPTS = 4
 
         private const val MAX_QUALITY = 95
         private const val MIN_QUALITY = 40

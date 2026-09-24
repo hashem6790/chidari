@@ -699,17 +699,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _imageState = MutableStateFlow<ProductImageState>(ProductImageState.Idle)
     val imageState: StateFlow<ProductImageState> = _imageState.asStateFlow()
 
-    /** بارگذاری تصویر انتخاب‌شده برای نمایش در صفحه برش. */
+    /**
+     * بارگذاری تصویر انتخاب‌شده برای نمایش در صفحه برش.
+     *
+     * **نکته مهم:** حالت `Loading` بیرون از کوروتین و به‌صورت همزمان ست
+     * می‌شود. `viewModelScope.launch` بدنه را روی صف حلقه‌ی پیام می‌گذارد،
+     * پس اگر داخل کوروتین ست می‌شد، در لحظه‌ی `navigate` هنوز `Idle` بود و
+     * صفحه برش نمی‌توانست بین «در حال بارگذاری» و «حالت کهنه» فرق بگذارد.
+     */
     fun prepareCrop(uri: android.net.Uri) {
+        _imageState.value = ProductImageState.Loading
         viewModelScope.launch {
-            _imageState.value = ProductImageState.Loading
-            val bmp = images.loadForCrop(uri)
-            if (bmp == null) {
-                _imageState.value = ProductImageState.Failed("تصویر خوانده نشد.")
-                return@launch
+            when (val r = images.loadForCrop(uri)) {
+                is ir.chidari.data.image.ImageLoad.Failure ->
+                    _imageState.value = ProductImageState.Failed(r.message)
+
+                is ir.chidari.data.image.ImageLoad.Success -> {
+                    val (w, h) = displaySize(uri)
+                    _imageState.value = ProductImageState.Cropping(uri, r.bitmap, w, h)
+                }
             }
-            val (w, h) = displaySize(uri)
-            _imageState.value = ProductImageState.Cropping(uri, bmp, w, h)
         }
     }
 
