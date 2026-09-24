@@ -28,6 +28,14 @@ data class UpdateInfo(
         get() = if (sizeBytes > 0) "%.1f مگابایت".format(sizeBytes / 1024.0 / 1024.0) else ""
 }
 
+/** وضعیت دانلود گزارش‌شده توسط DownloadManager. */
+sealed interface DownloadState {
+    data class Running(val percent: Int) : DownloadState
+    data object Done : DownloadState
+    data class Failed(val reason: Int) : DownloadState
+    data object Unknown : DownloadState
+}
+
 /** نتیجه بررسی به‌روزرسانی. */
 sealed interface UpdateResult {
     data class Available(val info: UpdateInfo) : UpdateResult
@@ -51,70 +59,117 @@ class UpdateChecker(private val context: Context) {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    /** آخرین نسخه منتشرشده را بررسی می‌کند. */
+    /**
+     * آخرین نسخه منتشرشده را بررسی می‌کند.
+     *
+     * دو مسیر امتحان می‌شود:
+     *  ۱. **API گیت‌هاب** — اطلاعات کامل (توضیحات نسخه، حجم فایل) می‌دهد
+     *     ولی برای هر IP ساعتی ۶۰ درخواست سقف دارد. چون اپراتورهای موبایل
+     *     IP مشترک دارند، این سقف زود پر می‌شود.
+     *  ۲. **ریدایرکت صفحه Releases** — بدون محدودیت نرخ و روی دامنه github.com
+     *     (نه api.github.com). وقتی مسیر اول شکست بخورد، از این استفاده می‌شود.
+     */
     suspend fun check(): UpdateResult = withContext(Dispatchers.IO) {
-        try {
-            val req = Request.Builder()
-                .url("https://api.github.com/repos/$REPO/releases/latest")
-                .addHeader("Accept", "application/vnd.github+json")
-                .build()
+        val viaApi = runCatching { checkViaApi() }.getOrElse {
+            UpdateResult.Error(describe(it))
+        }
+        // اگر API به هر دلیلی نشد (سقف نرخ، فیلترینگ، قطعی)، مسیر دوم
+        if (viaApi is UpdateResult.Error) {
+            val viaWeb = runCatching { checkViaRedirect() }.getOrNull()
+            if (viaWeb != null && viaWeb !is UpdateResult.Error) return@withContext viaWeb
+        }
+        viaApi
+    }
 
-            val body = http.newCall(req).execute().use { res ->
-                if (res.code == 404) {
-                    return@withContext UpdateResult.Error("هنوز نسخه‌ای منتشر نشده است.")
+    /** مسیر اول: API رسمی. */
+    private fun checkViaApi(): UpdateResult {
+        val req = Request.Builder()
+            .url("https://api.github.com/repos/$REPO/releases/latest")
+            .addHeader("Accept", "application/vnd.github+json")
+            .addHeader("User-Agent", "ChiDari-Android")
+            .build()
+
+        val (code, body) = http.newCall(req).execute().use { it.code to it.body?.string().orEmpty() }
+
+        if (code == 404) return UpdateResult.Error("هنوز نسخه‌ای منتشر نشده است.")
+        if (code == 403 || code == 429) {
+            return UpdateResult.Error("سقف درخواست گیت‌هاب پر شده؛ کمی بعد دوباره تلاش کنید.")
+        }
+        if (code !in 200..299) return UpdateResult.Error("پاسخ سرور: $code")
+
+        val json = JSONObject(body)
+        val tag = json.optString("tag_name").removePrefix("v").trim()
+        if (tag.isBlank()) return UpdateResult.Error("نسخه در Release مشخص نشده است.")
+
+        var url = ""
+        var size = 0L
+        json.optJSONArray("assets")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val a = arr.optJSONObject(i) ?: continue
+                if (a.optString("name").endsWith(".apk", true)) {
+                    url = a.optString("browser_download_url")
+                    size = a.optLong("size")
+                    break
                 }
-                if (!res.isSuccessful) {
-                    return@withContext UpdateResult.Error("پاسخ سرور: ${res.code}")
-                }
-                res.body?.string().orEmpty()
             }
+        }
+        if (url.isBlank()) return UpdateResult.Error("فایل نصبی به این Release پیوست نشده است.")
 
-            val json = JSONObject(body)
-            // تگ معمولاً به شکل v2.0 است؛ v ابتدایی حذف می‌شود
-            val tag = json.optString("tag_name").removePrefix("v").trim()
-            if (tag.isBlank()) return@withContext UpdateResult.Error("نسخه در Release مشخص نشده است.")
+        if (!isNewer(tag, BuildConfig.VERSION_NAME)) return UpdateResult.UpToDate
 
-            // یافتن فایل APK بین پیوست‌ها
-            val assets = json.optJSONArray("assets")
-            var url = ""
-            var size = 0L
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val a = assets.optJSONObject(i) ?: continue
-                    if (a.optString("name").endsWith(".apk", true)) {
-                        url = a.optString("browser_download_url")
-                        size = a.optLong("size")
-                        break
-                    }
-                }
-            }
-            if (url.isBlank()) {
-                return@withContext UpdateResult.Error(
-                    "فایل نصبی به این Release پیوست نشده است."
-                )
-            }
-
-            if (!isNewer(tag, BuildConfig.VERSION_NAME)) {
-                return@withContext UpdateResult.UpToDate
-            }
-
-            UpdateResult.Available(
-                UpdateInfo(
-                    versionName = tag,
-                    notes = json.optString("body").take(600),
-                    downloadUrl = url,
-                    sizeBytes = size,
-                    publishedAt = json.optString("published_at").take(10)
-                )
+        return UpdateResult.Available(
+            UpdateInfo(
+                versionName = tag,
+                notes = json.optString("body").take(600),
+                downloadUrl = url,
+                sizeBytes = size,
+                publishedAt = json.optString("published_at").take(10)
             )
-        } catch (e: IOException) {
-            UpdateResult.Error(
-                if (e.message.orEmpty().contains("UnknownHost", true))
-                    "اتصال به اینترنت برقرار نیست."
-                else "بررسی به‌روزرسانی ممکن نشد."
+        )
+    }
+
+    /**
+     * مسیر دوم: از ریدایرکت صفحه Releases نسخه را می‌خوانیم.
+     * `github.com/OWNER/REPO/releases/latest` به `/releases/tag/vX.Y` هدایت می‌شود.
+     */
+    private fun checkViaRedirect(): UpdateResult {
+        // کلاینت بدون دنبال کردن ریدایرکت تا فقط هدر Location را بخوانیم
+        val noRedirect = http.newBuilder().followRedirects(false).build()
+        val req = Request.Builder()
+            .url("https://github.com/$REPO/releases/latest")
+            .addHeader("User-Agent", "ChiDari-Android")
+            .head()
+            .build()
+
+        val location = noRedirect.newCall(req).execute().use { res ->
+            res.header("Location") ?: res.request.url.toString()
+        }
+
+        val tag = location.substringAfterLast("/tag/", "").trim()
+        if (tag.isBlank()) return UpdateResult.Error("نسخه‌ای پیدا نشد.")
+
+        val version = tag.removePrefix("v")
+        if (!isNewer(version, BuildConfig.VERSION_NAME)) return UpdateResult.UpToDate
+
+        // نام فایل طبق قرارداد workflow انتشار ساخته می‌شود
+        val apk = "ChiDari-$version.apk"
+        return UpdateResult.Available(
+            UpdateInfo(
+                versionName = version,
+                notes = "",
+                downloadUrl = "https://github.com/$REPO/releases/download/$tag/$apk",
+                sizeBytes = 0L,
+                publishedAt = ""
             )
-        } catch (e: Exception) {
-            UpdateResult.Error("خطا در بررسی به‌روزرسانی.")
+        )
+    }
+
+    private fun describe(t: Throwable): String {
+        val m = t.message.orEmpty().lowercase()
+        return when {
+            m.contains("unknownhost") -> "اتصال به اینترنت برقرار نیست."
+            m.contains("timeout") -> "پاسخی از گیت‌هاب نرسید."
+            else -> "بررسی به‌روزرسانی ممکن نشد."
         }
     }
 
@@ -158,7 +213,42 @@ class UpdateChecker(private val context: Context) {
         return dm.enqueue(request)
     }
 
-    /** مسیر فایل دانلودشده، اگر موجود باشد. */
+    /**
+     * وضعیت دانلود را از خود DownloadManager می‌پرسد.
+     *
+     * صرفِ وجود فایل کافی نیست: DownloadManager فایل را از همان ابتدا
+     * می‌سازد و کم‌کم پر می‌کند. اگر فقط وجود فایل را چک کنیم، نصب روی
+     * فایل نیمه‌کاره اجرا می‌شود و با خطای «بسته نامعتبر» شکست می‌خورد.
+     */
+    fun downloadStatus(downloadId: Long): DownloadState {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val q = DownloadManager.Query().setFilterById(downloadId)
+        dm.query(q).use { c ->
+            if (c == null || !c.moveToFirst()) return DownloadState.Unknown
+            val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val soFar = c.getLong(
+                c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+            )
+            val total = c.getLong(
+                c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+            )
+            return when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> DownloadState.Done
+                DownloadManager.STATUS_FAILED -> {
+                    val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                    DownloadState.Failed(reason)
+                }
+                DownloadManager.STATUS_PAUSED, DownloadManager.STATUS_PENDING,
+                DownloadManager.STATUS_RUNNING -> {
+                    val pct = if (total > 0) ((soFar * 100) / total).toInt() else 0
+                    DownloadState.Running(pct)
+                }
+                else -> DownloadState.Unknown
+            }
+        }
+    }
+
+    /** مسیر فایل دانلودشده (فقط پس از تأیید کامل شدن استفاده شود). */
     fun downloadedFile(versionName: String): File? {
         val f = File(
             context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),

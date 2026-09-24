@@ -26,6 +26,7 @@ import ir.chidari.data.repo.SortMode
 import ir.chidari.data.repo.StoreWithDistance
 import ir.chidari.data.image.ImageResult
 import ir.chidari.data.remote.SyncResult
+import ir.chidari.data.update.DownloadState
 import ir.chidari.data.update.UpdateInfo
 import ir.chidari.data.update.UpdateResult
 import ir.chidari.ui.components.UpdateUiState
@@ -628,22 +629,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** دانلود فایل نصبی و دنبال کردن پیشرفت آن. */
+    /**
+     * دانلود فایل نصبی و دنبال کردن پیشرفت واقعی.
+     *
+     * پیشرفت از خود DownloadManager خوانده می‌شود، نه از وجود فایل —
+     * چون فایل از ابتدا ساخته می‌شود و اگر نیمه‌کاره نصب شود،
+     * اندروید خطای «بسته نامعتبر» می‌دهد.
+     */
     fun downloadUpdate(info: UpdateInfo) {
         viewModelScope.launch {
             _updateState.value = UpdateUiState.Downloading(0)
-            runCatching { updater.startDownload(info) }
-                .onFailure {
-                    _updateState.value = UpdateUiState.Failed("دانلود شروع نشد.")
-                    return@launch
-                }
-            // تا زمانی که فایل کامل شود، هر ثانیه بررسی می‌کنیم
+
+            val id = runCatching { updater.startDownload(info) }.getOrElse {
+                _updateState.value = UpdateUiState.Failed("دانلود شروع نشد.")
+                return@launch
+            }
+
+            // حداکثر ۱۰ دقیقه انتظار، هر ثانیه یک بار بررسی
             repeat(600) {
                 delay(1000)
-                val f = updater.downloadedFile(info.versionName)
-                if (f != null) {
-                    _updateState.value = UpdateUiState.ReadyToInstall(info)
-                    return@launch
+                when (val st = updater.downloadStatus(id)) {
+                    is DownloadState.Done -> {
+                        val f = updater.downloadedFile(info.versionName)
+                        _updateState.value = if (f != null)
+                            UpdateUiState.ReadyToInstall(info)
+                        else
+                            UpdateUiState.Failed("فایل دانلودشده پیدا نشد.")
+                        return@launch
+                    }
+                    is DownloadState.Failed -> {
+                        _updateState.value = UpdateUiState.Failed(
+                            "دانلود ناموفق بود (کد ${st.reason}). اینترنت را بررسی کنید."
+                        )
+                        return@launch
+                    }
+                    is DownloadState.Running ->
+                        _updateState.value = UpdateUiState.Downloading(st.percent)
+                    DownloadState.Unknown -> Unit
                 }
             }
             _updateState.value = UpdateUiState.Failed("دانلود بیش از حد طول کشید.")
