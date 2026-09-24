@@ -25,6 +25,10 @@ import ir.chidari.data.repo.ProductOffer
 import ir.chidari.data.repo.SortMode
 import ir.chidari.data.repo.StoreWithDistance
 import ir.chidari.data.remote.SyncResult
+import ir.chidari.data.update.UpdateInfo
+import ir.chidari.data.update.UpdateResult
+import ir.chidari.ui.components.UpdateUiState
+import kotlinx.coroutines.delay
 import ir.chidari.data.remote.SyncStatus
 import ir.chidari.location.LocationResult
 import ir.chidari.util.Fa
@@ -66,6 +70,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val locationProvider = application.locationProvider
     private val sync = application.syncManager
     private val settingsRepo = application.settings
+    private val updater = application.updateChecker
 
     /**
      * حافظه‌ی جریان‌های وابسته به کلید.
@@ -594,6 +599,73 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun lookupBarcode(barcode: String) = repo.findByBarcode(barcode)
 
     // ---------- پیام‌ها ----------
+
+    // ---------- به‌روزرسانی برنامه ----------
+
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+
+    /** بررسی وجود نسخه تازه روی گیت‌هاب. */
+    fun checkForUpdate(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (!silent) _updateState.value = UpdateUiState.Checking
+            when (val r = updater.check()) {
+                is UpdateResult.Available -> {
+                    // اگر قبلاً دانلود شده، مستقیم به مرحله نصب می‌رویم
+                    _updateState.value =
+                        if (updater.downloadedFile(r.info.versionName) != null)
+                            UpdateUiState.ReadyToInstall(r.info)
+                        else UpdateUiState.Available(r.info)
+                }
+                is UpdateResult.UpToDate ->
+                    _updateState.value = if (silent) UpdateUiState.Idle else UpdateUiState.UpToDate
+                is UpdateResult.Error ->
+                    _updateState.value =
+                        if (silent) UpdateUiState.Idle else UpdateUiState.Failed(r.message)
+            }
+        }
+    }
+
+    /** دانلود فایل نصبی و دنبال کردن پیشرفت آن. */
+    fun downloadUpdate(info: UpdateInfo) {
+        viewModelScope.launch {
+            _updateState.value = UpdateUiState.Downloading(0)
+            runCatching { updater.startDownload(info) }
+                .onFailure {
+                    _updateState.value = UpdateUiState.Failed("دانلود شروع نشد.")
+                    return@launch
+                }
+            // تا زمانی که فایل کامل شود، هر ثانیه بررسی می‌کنیم
+            repeat(600) {
+                delay(1000)
+                val f = updater.downloadedFile(info.versionName)
+                if (f != null) {
+                    _updateState.value = UpdateUiState.ReadyToInstall(info)
+                    return@launch
+                }
+            }
+            _updateState.value = UpdateUiState.Failed("دانلود بیش از حد طول کشید.")
+        }
+    }
+
+    /** اجرای نصب‌کننده اندروید. */
+    fun installUpdate(info: UpdateInfo) {
+        if (!updater.canInstallPackages()) {
+            _updateState.value = UpdateUiState.NeedsPermission(info)
+            return
+        }
+        val f = updater.downloadedFile(info.versionName)
+        if (f == null) {
+            _updateState.value = UpdateUiState.Failed("فایل نصبی پیدا نشد.")
+            return
+        }
+        runCatching { updater.installApk(f) }
+            .onFailure { _updateState.value = UpdateUiState.Failed("نصب‌کننده باز نشد.") }
+    }
+
+    fun grantInstallPermission() = updater.openInstallPermissionSettings()
+    fun openReleasesPage() = updater.openReleasesPage()
+    fun dismissUpdate() { _updateState.value = UpdateUiState.Idle }
 
     fun showMessage(text: String) { _message.value = UiMessage(text) }
     fun clearMessage() { _message.value = null }

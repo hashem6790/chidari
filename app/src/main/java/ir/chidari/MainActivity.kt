@@ -56,6 +56,7 @@ import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import ir.chidari.data.prefs.ThemeMode
 import ir.chidari.ui.components.AppDrawer
+import ir.chidari.ui.components.UpdateDialog
 import ir.chidari.ui.components.FiltersSheet
 import ir.chidari.ui.nav.Routes
 import ir.chidari.ui.nav.Tab
@@ -136,6 +137,7 @@ private fun ChiDariRoot() {
     val favoriteStores by vm.favoriteStores.collectAsStateWithLifecycle()
     val favoriteProducts by vm.favoriteProducts.collectAsStateWithLifecycle()
     val syncStatus by vm.syncStatus.collectAsStateWithLifecycle()
+    val updateState by vm.updateState.collectAsStateWithLifecycle()
     val appSettings by vm.settings.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -221,6 +223,21 @@ private fun ChiDariRoot() {
             vm.clearMessage()
         }
     }
+
+    // پنجره به‌روزرسانی روی هر صفحه‌ای که باشیم نمایش داده می‌شود
+    UpdateDialog(
+        state = updateState,
+        currentVersion = BuildConfig.VERSION_NAME,
+        onDownload = vm::downloadUpdate,
+        onInstall = vm::installUpdate,
+        onGrantPermission = { vm.grantInstallPermission() },
+        onOpenBrowser = { vm.openReleasesPage() },
+        onRetry = { vm.checkForUpdate() },
+        onDismiss = { vm.dismissUpdate() }
+    )
+
+    // بررسی بی‌صدا هنگام اجرا: فقط اگر نسخه تازه‌ای باشد پنجره باز می‌شود
+    LaunchedEffect(Unit) { vm.checkForUpdate(silent = true) }
 
     val startDestination = if (location.onboarded) Routes.MAIN else Routes.ONBOARDING
 
@@ -319,6 +336,7 @@ private fun ChiDariRoot() {
                     },
                     onHelp = { closeDrawer(); vm.showMessage("راهنما: با انتخاب شهر یا GPS، نزدیک‌ترین فروشگاه‌ها را ببینید.") },
                     onAbout = { closeDrawer(); vm.showMessage("چی داری؟ نسخه ${BuildConfig.VERSION_NAME}") },
+                    onCheckUpdate = { closeDrawer(); vm.checkForUpdate() },
                     onSignIn = { closeDrawer(); navController.navigate(Routes.AUTH) },
                     onSignOut = { closeDrawer(); authVm.signOut() }
                 )

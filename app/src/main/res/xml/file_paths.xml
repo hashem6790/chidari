@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- مسیرهایی که FileProvider اجازه اشتراک‌گذاری آن‌ها را دارد -->
+<paths>
+    <!-- محل ذخیره فایل نصبی به‌روزرسانی -->
+    <external-files-path name="updates" path="Download/" />
+    <cache-path name="cache" path="." />
+</paths>

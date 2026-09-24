@@ -21,6 +21,22 @@ android {
         if (f.exists()) load(FileInputStream(f))
     }
 
+    /**
+     * اطلاعات کلید امضای نسخه انتشار.
+     *
+     * امضای ثابت حیاتی است: اندروید فقط نسخه‌ای را روی نسخه قبلی نصب می‌کند
+     * که با **همان کلید** امضا شده باشد. اگر کلید عوض شود، کاربر مجبور است
+     * برنامه را حذف و از نو نصب کند (و داده‌هایش پاک می‌شود).
+     *
+     * مقادیر از keystore.properties (محلی) یا متغیرهای محیطی (CI) خوانده می‌شوند.
+     */
+    val keystoreProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) load(FileInputStream(f))
+    }
+    fun signingValue(key: String, env: String): String? =
+        keystoreProps.getProperty(key) ?: System.getenv(env)
+
     defaultConfig {
         applicationId = "ir.chidari"
         minSdk = 24
@@ -41,8 +57,25 @@ android {
         )
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = signingValue("storeFile", "KEYSTORE_FILE")
+            if (storePath != null && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = signingValue("storePassword", "KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // فقط اگر کلید موجود باشد امضا می‌شود؛ وگرنه build بدون امضا ادامه می‌یابد
+            val ks = signingValue("storeFile", "KEYSTORE_FILE")
+            if (ks != null && file(ks).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -105,6 +105,7 @@ fun AppDrawer(
     onShareApp: () -> Unit,
     onHelp: () -> Unit,
     onAbout: () -> Unit,
+    onCheckUpdate: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit
 ) {
@@ -380,6 +381,12 @@ fun AppDrawer(
             }
 
             DrawerSection("ℹ️", "درباره", openSection == "about", { toggle("about") }) {
+                DrawerItem(
+                    emoji = "⬆️",
+                    title = "بررسی به‌روزرسانی",
+                    value = "نسخه ${Fa.digits(appVersion)}",
+                    onClick = onCheckUpdate
+                )
                 DrawerItem("❓", "راهنمای استفاده", onClick = onHelp)
                 DrawerItem("📤", "معرفی به دوستان", onClick = onShareApp)
                 DrawerItem("ℹ️", "درباره برنامه", value = "نسخه ${Fa.digits(appVersion)}", onClick = onAbout)

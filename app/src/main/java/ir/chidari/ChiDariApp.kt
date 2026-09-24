@@ -5,6 +5,7 @@ import ir.chidari.data.auth.AuthClient
 import ir.chidari.data.local.AppDatabase
 import ir.chidari.data.remote.RemoteDataSource
 import ir.chidari.data.remote.SyncManager
+import ir.chidari.data.update.UpdateChecker
 import ir.chidari.data.prefs.SettingsRepository
 import ir.chidari.data.prefs.UserPrefs
 import ir.chidari.data.repo.AppRepository
@@ -21,4 +22,5 @@ class ChiDariApp : Application() {
     val authClient: AuthClient by lazy { AuthClient(this) }
     val remote: RemoteDataSource by lazy { RemoteDataSource(authClient) }
     val syncManager: SyncManager by lazy { SyncManager(database, remote) }
+    val updateChecker: UpdateChecker by lazy { UpdateChecker(this) }
 }
