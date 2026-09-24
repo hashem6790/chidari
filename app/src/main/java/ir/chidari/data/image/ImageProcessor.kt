@@ -197,7 +197,14 @@ class ImageProcessor(private val context: Context) {
                 )
             }
 
-            // ۲) رمزگشایی کم‌حافظه
+            // ۲) آیا اصلاً قالبش قابل خواندن است؟ (ابعاد بدون مصرف حافظه)
+            if (storedSize(source) == null) {
+                return@withContext ImageLoad.Failure(
+                    "قالب این تصویر پشتیبانی نمی‌شود یا فایل خراب است. (کد ۵)"
+                )
+            }
+
+            // ۳) رمزگشایی کم‌حافظه
             val bmp = try {
                 decodeScaled(source, maxDimension, null)
             } catch (e: OutOfMemoryError) {
@@ -209,7 +216,7 @@ class ImageProcessor(private val context: Context) {
                     "خواندن تصویر ناموفق بود: ${e.message ?: "نامشخص"} (کد ۴)"
                 )
             } ?: return@withContext ImageLoad.Failure(
-                "قالب این تصویر پشتیبانی نمی‌شود یا فایل خراب است. (کد ۵)"
+                "رمزگشایی تصویر ناموفق بود؛ حتی با کاهش ابعاد. (کد ۶)"
             )
 
             ImageLoad.Success(rotate(bmp, readRotation(source)))
@@ -226,9 +233,24 @@ class ImageProcessor(private val context: Context) {
      */
     private fun decodeScaled(uri: Uri, maxDim: Int, cropRect: Rect?): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: return null
+
+        /*
+         * باگی که رفع شد (ریشه‌ی «باز نشدن ویرایشگر تصویر»):
+         *
+         *     openInputStream(uri)?.use { decodeStream(it, null, bounds) } ?: return null
+         *
+         * به نظر می‌رسید «اگر نشد فایل را باز کرد، برگرد»، ولی در واقع این‌طور
+         * نبود. عملگر `?:` روی نتیجه‌ی کل عبارت عمل می‌کند و `use` همان چیزی را
+         * برمی‌گرداند که بلوکش برگردانده. طبق مستندات اندروید، وقتی
+         * `inJustDecodeBounds = true` باشد `decodeStream` **همیشه null** برمی‌گرداند
+         * (فقط ابعاد را داخل Options می‌نویسد). پس کل عبارت همیشه null بود و این
+         * تابع **همیشه و برای هر تصویری** بدون اینکه حتی تلاشی برای رمزگشایی کند
+         * null برمی‌گرداند. به همین دلیل صفحه برش هرگز تصویری نمی‌گرفت.
+         *
+         * حالا null بودن «جریان» جدا از null بودن «خروجی رمزگشا» بررسی می‌شود.
+         */
+        val boundsStream = context.contentResolver.openInputStream(uri) ?: return null
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
 
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 

@@ -290,6 +290,41 @@ class ImageEngineTest {
         assertEquals(1, sampleSize(640, 480, 1200))
     }
 
+    /**
+     * رگرسیون باگ اصلی «ویرایشگر تصویر باز نمی‌شود» (کد ۵).
+     *
+     * کد معیوب این بود:
+     *
+     *     openInputStream(uri)?.use { decodeStream(it, null, bounds) } ?: return null
+     *
+     * به نظر می‌رسید «اگر جریان باز نشد برگرد»، ولی `?:` روی نتیجه‌ی کل عبارت
+     * عمل می‌کند و `use` خروجی بلوکش را برمی‌گرداند. `decodeStream` با
+     * `inJustDecodeBounds = true` طبق مستندات **همیشه null** برمی‌گرداند.
+     * پس شرط همیشه برقرار می‌شد و تابع برای هر تصویری null می‌داد — یعنی
+     * صفحه برش هرگز تصویری نمی‌گرفت، مستقل از حافظه یا قالب فایل.
+     */
+    @Test fun `stream presence must not be confused with decoder output`() {
+        // decodeStream وقتی فقط ابعاد را می‌خواهیم، همیشه null است
+        fun decodeBoundsOnly(stream: String, out: IntArray): String? {
+            out[0] = 4000; out[1] = 3000      // ابعاد نوشته می‌شود
+            return null                        // ولی خروجی null است
+        }
+
+        val stream: String? = "یک جریان کاملاً سالم"
+        val size = IntArray(2)
+
+        // ❌ الگوی معیوب: جریان سالم است ولی مسیر خطا اجرا می‌شود
+        // (`let` دقیقاً مثل `use` مقدار بلوک را برمی‌گرداند)
+        val buggy = stream?.let { decodeBoundsOnly(it, size) } ?: "مسیر خطا"
+        assertEquals("الگوی قدیمی برای جریان سالم هم به مسیر خطا می‌رفت", "مسیر خطا", buggy)
+
+        // ✓ الگوی درست: null بودن جریان جدا از null بودن خروجی رمزگشا
+        val reachedDecode = if (stream == null) false else { decodeBoundsOnly(stream, size); true }
+        assertTrue("با جریان سالم باید به مرحله رمزگشایی برسیم", reachedDecode)
+        assertEquals(4000, size[0])
+        assertEquals(3000, size[1])
+    }
+
     /** همان منطق limitDimension. */
     private fun limit(w: Int, h: Int, maxDim: Int): Pair<Int, Int> {
         val longest = maxOf(w, h)
