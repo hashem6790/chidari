@@ -5,9 +5,12 @@ import ir.chidari.data.GeoUtils
 import ir.chidari.data.IranGeo
 import ir.chidari.data.normalizeFa
 import ir.chidari.util.Fa
+import ir.chidari.ui.crop.CropHandle as H
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -497,5 +500,200 @@ class ProductImagesTest {
             val changed = j >= 0 && j < list.size
             assertTrue("جابه‌جایی در لبه نباید انجام شود", !changed)
         }
+    }
+}
+
+/**
+ * تست‌های کادر برش قابل تغییر اندازه.
+ *
+ * منطق هندسی عمداً از Compose جدا نگه داشته شد تا همین‌جا و بدون شبیه‌ساز
+ * بشود تستش کرد — چون دفعه‌ی قبل باگ نگاشت کادر تا روی دستگاه کاربر رفت.
+ */
+class CropFrameTest {
+
+    private val G = ir.chidari.ui.crop.CropGeometry
+    private fun rect(l: Float, t: Float, r: Float, b: Float) =
+        ir.chidari.ui.crop.FrameRect(l, t, r, b)
+
+    @Test fun `initial frame keeps the requested ratio and is centred`() {
+        val f = G.initialFrame(boxW = 1000f, boxH = 600f, ratio = 1f, margin = 20f)
+        assertEquals(560f, f.width, 0.5f)
+        assertEquals(560f, f.height, 0.5f)
+        assertEquals(500f, f.centerX, 0.5f)
+        assertEquals(300f, f.centerY, 0.5f)
+    }
+
+    @Test fun `free ratio fills the box minus the margin`() {
+        val f = G.initialFrame(1000f, 600f, null, 20f)
+        assertEquals(960f, f.width, 0.5f)
+        assertEquals(560f, f.height, 0.5f)
+    }
+
+    // ---------- تشخیص دستگیره ----------
+
+    @Test fun `each of the eight handles is detected`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        assertEquals(H.TOP_LEFT, G.hitTest(102f, 98f, f, 20f))
+        assertEquals(H.TOP_RIGHT, G.hitTest(298f, 103f, f, 20f))
+        assertEquals(H.BOTTOM_LEFT, G.hitTest(95f, 305f, f, 20f))
+        assertEquals(H.BOTTOM_RIGHT, G.hitTest(301f, 299f, f, 20f))
+        assertEquals(H.TOP, G.hitTest(200f, 96f, f, 20f))
+        assertEquals(H.BOTTOM, G.hitTest(200f, 302f, f, 20f))
+        assertEquals(H.LEFT, G.hitTest(99f, 200f, f, 20f))
+        assertEquals(H.RIGHT, G.hitTest(304f, 200f, f, 20f))
+    }
+
+    @Test fun `middle of the frame is not a handle`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        assertNull(G.hitTest(200f, 200f, f, 20f))
+    }
+
+    /** در گوشه، ناحیه‌ی گوشه و ضلع روی هم می‌افتند؛ گوشه باید برنده شود. */
+    @Test fun `corner wins over edge when both are in range`() {
+        val f = rect(100f, 100f, 160f, 300f)   // کادر باریک: مرکز افقی نزدیک گوشه است
+        assertEquals(H.TOP_LEFT, G.hitTest(105f, 102f, f, 40f))
+    }
+
+    // ---------- جابه‌جایی ----------
+
+    @Test fun `move shifts the frame without resizing it`() {
+        val f = rect(100f, 100f, 300f, 200f)
+        val m = G.move(f, 50f, -30f, 1000f, 1000f)
+        assertEquals(150f, m.left, 0.01f)
+        assertEquals(70f, m.top, 0.01f)
+        assertEquals(f.width, m.width, 0.01f)
+        assertEquals(f.height, m.height, 0.01f)
+    }
+
+    @Test fun `move is clamped at the edges instead of leaving the screen`() {
+        val f = rect(0f, 0f, 200f, 200f)
+        val m = G.move(f, -100f, -100f, 500f, 500f)
+        assertEquals("نباید از لبه چپ بیرون بزند", 0f, m.left, 0.01f)
+        assertEquals("نباید از لبه بالا بیرون بزند", 0f, m.top, 0.01f)
+        assertEquals(200f, m.width, 0.01f)
+
+        val m2 = G.move(f, 999f, 999f, 500f, 500f)
+        assertEquals(500f, m2.right, 0.01f)
+        assertEquals(500f, m2.bottom, 0.01f)
+    }
+
+    // ---------- تغییر اندازه ----------
+
+    @Test fun `free resize moves only the dragged edge`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        val r = G.resize(f, H.RIGHT, 40f, 0f, 1000f, 1000f, null, 64f)
+        assertEquals(340f, r.right, 0.01f)
+        assertEquals(100f, r.left, 0.01f)
+        assertEquals(f.height, r.height, 0.01f)
+    }
+
+    @Test fun `locked ratio stays square while resizing a corner`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        val r = G.resize(
+            f, H.BOTTOM_RIGHT, 60f, 10f, 1000f, 1000f, 1f, 64f
+        )
+        assertEquals("نسبت مربع باید حفظ شود", r.width, r.height, 0.5f)
+        assertTrue("باید بزرگ‌تر شده باشد", r.width > f.width)
+        // لنگر: گوشه بالا-چپ ثابت
+        assertEquals(100f, r.left, 0.01f)
+        assertEquals(100f, r.top, 0.01f)
+    }
+
+    @Test fun `locked ratio 4 to 3 is preserved`() {
+        val f = G.initialFrame(1000f, 1000f, 4f / 3f, 20f)
+        val r = G.resize(
+            f, H.BOTTOM_RIGHT, -80f, 0f, 1000f, 1000f, 4f / 3f, 64f
+        )
+        assertEquals(4f / 3f, r.width / r.height, 0.02f)
+    }
+
+    @Test fun `resize refuses to go below the minimum size`() {
+        val f = rect(100f, 100f, 180f, 180f)
+        val r = G.resize(f, H.RIGHT, -60f, 0f, 1000f, 1000f, null, 64f)
+        assertEquals("کادر نباید از حداقل کوچک‌تر شود", f, r)
+    }
+
+    @Test fun `resize never leaves the screen`() {
+        val f = rect(0f, 0f, 200f, 200f)
+        val r = G.resize(f, H.LEFT, -50f, 0f, 500f, 500f, null, 64f)
+        assertTrue("چپ نباید منفی شود", r.left >= 0f)
+    }
+
+    // ---------- نگاشت به تصویر اصلی ----------
+
+    @Test fun `full frame with no zoom maps to the whole source image`() {
+        // بیت‌مپ ۴۰۰×۴۰۰ در جعبه ۴۰۰×۴۰۰، بدون بزرگ‌نمایی، کادر کل جعبه
+        val r = G.toSourceRect(
+            frame = rect(0f, 0f, 400f, 400f),
+            bitmapW = 400, bitmapH = 400,
+            sourceW = 4000, sourceH = 4000,
+            boxW = 400f, boxH = 400f,
+            scale = 1f, offsetX = 0f, offsetY = 0f
+        )
+        assertEquals(0, r[0]); assertEquals(0, r[1])
+        assertEquals(4000, r[2]); assertEquals(4000, r[3])
+    }
+
+    @Test fun `half frame maps to a quarter of the source area`() {
+        val r = G.toSourceRect(
+            frame = rect(0f, 0f, 200f, 200f),
+            bitmapW = 400, bitmapH = 400,
+            sourceW = 4000, sourceH = 4000,
+            boxW = 400f, boxH = 400f,
+            scale = 1f, offsetX = 0f, offsetY = 0f
+        )
+        assertEquals(0, r[0]); assertEquals(0, r[1])
+        assertEquals(2000, r[2]); assertEquals(2000, r[3])
+    }
+
+    @Test fun `result is always inside the source bounds`() {
+        val r = G.toSourceRect(
+            frame = rect(-500f, -500f, 900f, 900f),   // کادر عمداً بیرون‌زده
+            bitmapW = 400, bitmapH = 400,
+            sourceW = 1000, sourceH = 1000,
+            boxW = 400f, boxH = 400f,
+            scale = 1f, offsetX = 0f, offsetY = 0f
+        )
+        assertTrue(r[0] >= 0 && r[1] >= 0)
+        assertTrue(r[2] <= 1000 && r[3] <= 1000)
+        assertTrue("عرض باید مثبت بماند", r[2] > r[0])
+    }
+}
+
+/** رنگ تطبیقی کادر بر اساس روشنایی تصویر. */
+class CropColorTest {
+
+    private val L = ir.chidari.ui.crop.Luma
+
+    @Test fun `luminance of pure colours`() {
+        assertEquals(0f, L.of(0xFF000000.toInt()), 0.001f)
+        assertEquals(1f, L.of(0xFFFFFFFF.toInt()), 0.001f)
+    }
+
+    /** سبز باید روشن‌تر از آبی دیده شود — همان چیزی که چشم می‌بیند. */
+    @Test fun `green looks brighter than blue`() {
+        assertTrue(L.of(0xFF00FF00.toInt()) > L.of(0xFF0000FF.toInt()))
+    }
+
+    @Test fun `a white product photo counts as bright so the frame turns dark`() {
+        val white = IntArray(100) { 0xFFF2F2F2.toInt() }
+        assertTrue("عکس سفید باید روشن تشخیص داده شود", L.isBright(L.average(white)))
+    }
+
+    @Test fun `a night photo counts as dark so the frame stays white`() {
+        val dark = IntArray(100) { 0xFF101820.toInt() }
+        assertFalse("عکس تیره نباید روشن تشخیص داده شود", L.isBright(L.average(dark)))
+    }
+
+    /** نصفه‌تیره/نصفه‌روشن: میانگین وسط است و آستانه آن را تیره می‌گیرد. */
+    @Test fun `a half dark half light photo falls back to the white frame`() {
+        val mixed = IntArray(100) { if (it < 50) 0xFF000000.toInt() else 0xFFFFFFFF.toInt() }
+        val avg = L.average(mixed)
+        assertEquals(0.5f, avg, 0.01f)
+        assertFalse("در حالت شک، کادر سفید امن‌تر است", L.isBright(avg))
+    }
+
+    @Test fun `empty pixel array does not crash`() {
+        assertEquals(0f, L.average(IntArray(0)), 0.001f)
     }
 }

@@ -281,6 +281,18 @@ private fun ChiDariRoot() {
     // بررسی بی‌صدا هنگام اجرا: فقط اگر نسخه تازه‌ای باشد پنجره باز می‌شود
     LaunchedEffect(Unit) { vm.checkForUpdate(silent = true) }
 
+    /**
+     * بستن صفحه برش — فقط اگر واقعاً روی همان صفحه باشیم.
+     *
+     * محافظ دوم در برابر باگ «بسته شدن فرم محصول»: حتی اگر دو مسیر جداگانه
+     * بخواهند صفحه برش را ببندند، مقصد بعدی از پشته برداشته نمی‌شود.
+     */
+    fun popCrop() {
+        if (navController.currentDestination?.route == Routes.CROP) {
+            navController.popBackStack()
+        }
+    }
+
     /** رفتن به صفحه برش بدون ثبت دوباره‌ی مقصد (اگر از قبل آنجا باشیم). */
     fun openCropFor(uri: android.net.Uri, replaceId: Long = 0L) {
         vm.prepareCrop(uri, replaceId)
@@ -707,12 +719,20 @@ private fun ChiDariRoot() {
             val st = imageState
 
             /*
-             * اگر برنامه در پس‌زمینه بازسازی شده باشد، این مقصد از پشته
-             * برمی‌گردد ولی حالت تصویر Idle است (بیت‌مپ در ViewModel نبوده).
-             * در آن صورت به‌جای چرخ بی‌پایان، برمی‌گردیم.
+             * باگی که رفع شد: «تأیید برش» فرم محصول را هم می‌بست.
+             *
+             * علت: هنگام موفقیت، ViewModel حالت را به Idle برمی‌گرداند و این
+             * اثر جانبی یک popBackStack می‌زد (صفحه برش بسته می‌شد)، بعد
+             * فراخوان onDone هم یک popBackStack دیگر می‌زد — و آن یکی دیگر
+             * روی «فرم محصول» می‌افتاد.
+             *
+             * حالا بررسی «حالت کهنه» فقط **یک بار هنگام ورود** انجام می‌شود
+             * (برای وقتی که برنامه در پس‌زمینه بازسازی شده و بیت‌مپی در
+             * ViewModel نمانده)، نه با هر تغییر حالت.
              */
-            LaunchedEffect(st) {
-                if (st is ProductImageState.Idle) navController.popBackStack()
+            val staleEntry = remember { imageState is ProductImageState.Idle }
+            LaunchedEffect(Unit) {
+                if (staleEntry) popCrop()
             }
 
             val c = st as? ProductImageState.Cropping
@@ -723,10 +743,8 @@ private fun ChiDariRoot() {
                 busy = st is ProductImageState.Processing,
                 // خطا دیگر بی‌صدا نیست: روی همین صفحه نشان داده می‌شود
                 error = (st as? ProductImageState.Failed)?.message,
-                onConfirm = { rect ->
-                    vm.cropAndCompress(rect) { navController.popBackStack() }
-                },
-                onBack = { vm.cancelImage(); navController.popBackStack() }
+                onConfirm = { rect -> vm.cropAndCompress(rect) { popCrop() } },
+                onBack = { vm.cancelImage(); popCrop() }
             )
         }
 
