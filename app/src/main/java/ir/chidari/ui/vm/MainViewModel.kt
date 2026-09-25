@@ -743,7 +743,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * برش و فشرده‌سازی نهایی، سپس افزودن به فهرست تصاویر محصول و شروع
      * فوری بارگذاری در پس‌زمینه (رفتار دیوار: کاربر منتظر نمی‌ماند).
      */
-    fun cropAndCompress(rect: android.graphics.Rect, onDone: () -> Unit) {
+    fun cropAndCompress(
+        rect: android.graphics.Rect,
+        circular: Boolean = false,
+        onDone: () -> Unit
+    ) {
         val st = _imageState.value
         if (st !is ProductImageState.Cropping) return
         val replaceId = cropReplaceId
@@ -756,7 +760,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val originalPath = existing?.originalPath?.takeIf { java.io.File(it).exists() }
                 ?: images.copyOriginal(st.source)?.absolutePath.orEmpty()
 
-            when (val r = images.process(st.source, rect)) {
+            when (val r = images.process(st.source, rect, circular)) {
                 is ImageResult.Success -> {
                     _imageState.value = ProductImageState.Idle
                     showMessage(

@@ -67,6 +67,8 @@ class ImageProcessor(private val context: Context) {
     suspend fun process(
         source: Uri,
         cropRect: Rect? = null,
+        /** برش دایره‌ای: گوشه‌ها شفاف می‌شوند و خروجی WebP خواهد بود. */
+        circular: Boolean = false,
         maxDimension: Int = MAX_DIMENSION,
         maxBytes: Long = MAX_BYTES
     ): ImageResult = withContext(Dispatchers.IO) {
@@ -86,13 +88,17 @@ class ImageProcessor(private val context: Context) {
             // چرخش پس از برش اعمال می‌شود
             val rotated = rotate(decoded, rotation)
             val resized = limitDimension(rotated, maxDimension)
-            val (bytes, quality) = compressUnder(resized, maxBytes)
+            val masked = if (circular) circleMask(resized) else resized
 
-            val out = File(imageDir(), "product_${System.currentTimeMillis()}.jpg")
+            val (bytes, quality) = compressUnder(masked, maxBytes, circular)
+
+            val ext = if (circular) "webp" else "jpg"
+            val out = File(imageDir(), "product_${System.currentTimeMillis()}.$ext")
             FileOutputStream(out).use { it.write(bytes) }
 
-            val w = resized.width
-            val h = resized.height
+            val w = masked.width
+            val h = masked.height
+            if (masked != resized) masked.recycle()
             if (resized != rotated) resized.recycle()
             if (rotated != decoded) rotated.recycle()
             decoded.recycle()
@@ -340,9 +346,13 @@ class ImageProcessor(private val context: Context) {
      * (کیفیت هدررفته)، بالاترین کیفیتی پیدا می‌شود که زیر سقف جا شود.
      * معمولاً با ۷ بار فشرده‌سازی به جواب می‌رسد.
      */
-    private fun compressUnder(bitmap: Bitmap, maxBytes: Long): Pair<ByteArray, Int> {
+    private fun compressUnder(
+        bitmap: Bitmap,
+        maxBytes: Long,
+        transparent: Boolean = false
+    ): Pair<ByteArray, Int> {
         // اگر با بالاترین کیفیت هم جا شد، همان بهترین است
-        var best = compress(bitmap, MAX_QUALITY)
+        var best = compress(bitmap, MAX_QUALITY, transparent)
         if (best.size <= maxBytes) return best to MAX_QUALITY
 
         var low = MIN_QUALITY
@@ -352,7 +362,7 @@ class ImageProcessor(private val context: Context) {
 
         while (low <= high) {
             val mid = (low + high) / 2
-            val data = compress(bitmap, mid)
+            val data = compress(bitmap, mid, transparent)
             if (data.size <= maxBytes) {
                 bestBytes = data           // جا شد، کیفیت بالاتر را امتحان کن
                 bestQuality = mid
@@ -367,19 +377,51 @@ class ImageProcessor(private val context: Context) {
         // حتی پایین‌ترین کیفیت هم جا نشد → ابعاد را کم کن و دوباره
         val smaller = limitDimension(bitmap, (maxOf(bitmap.width, bitmap.height) * 0.75f).toInt())
         return if (smaller != bitmap) {
-            val r = compressUnder(smaller, maxBytes)
+            val r = compressUnder(smaller, maxBytes, transparent)
             smaller.recycle()
             r
         } else {
-            compress(bitmap, MIN_QUALITY) to MIN_QUALITY
+            compress(bitmap, MIN_QUALITY, transparent) to MIN_QUALITY
         }
     }
 
-    private fun compress(bitmap: Bitmap, quality: Int): ByteArray =
+    /**
+     * فشرده‌سازی. برای تصویر شفاف JPEG کار نمی‌کند (کانال آلفا ندارد و
+     * گوشه‌ها سیاه می‌شوند)، پس WebP با اتلاف استفاده می‌شود که هم شفافیت
+     * دارد و هم حجمش از PNG بسیار کمتر است.
+     */
+    private fun compress(bitmap: Bitmap, quality: Int, transparent: Boolean): ByteArray =
         ByteArrayOutputStream().use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            val format = if (!transparent) Bitmap.CompressFormat.JPEG
+            else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R)
+                Bitmap.CompressFormat.WEBP_LOSSY
+            else @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+            bitmap.compress(format, quality, out)
             out.toByteArray()
         }
+
+    /**
+     * ماسک دایره‌ای: بیرون دایره کاملاً شفاف می‌شود.
+     *
+     * از `PorterDuff.Mode.SRC_IN` استفاده می‌شود: اول دایره‌ی توپر کشیده
+     * می‌شود، بعد تصویر فقط جایی که دایره هست نوشته می‌شود.
+     */
+    private fun circleMask(src: Bitmap): Bitmap {
+        val size = minOf(src.width, src.height)
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+
+        val r = size / 2f
+        canvas.drawCircle(r, r, r, paint)
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+
+        // اگر تصویر مربع نبود، وسطش برداشته می‌شود
+        val dx = (size - src.width) / 2f
+        val dy = (size - src.height) / 2f
+        canvas.drawBitmap(src, dx, dy, paint)
+        return out
+    }
 
     /**
      * یک نسخه‌ی دست‌نخورده از تصویر انتخاب‌شده را داخل برنامه کپی می‌کند.

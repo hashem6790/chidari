@@ -65,7 +65,10 @@ fun FiltersSheet(
                     SortMode.entries.firstOrNull { it.label == label }?.let(onSortChange)
                 },
                 allLabel = "پیش‌فرض",
-                modifier = Modifier.padding(horizontal = (-20).dp)
+                // والد از قبل ۲۰dp فاصله دارد؛ ردیف نباید فاصله‌ی دوباره بگیرد.
+                // اینجا قبلاً padding منفی بود که Compose آن را رد می‌کند و
+                // به محض باز شدن این برگه برنامه کرش می‌کرد.
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
             )
 
             Spacer(Modifier.height(20.dp))

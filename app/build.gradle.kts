@@ -12,7 +12,7 @@ plugins {
  * از روی تگ)، همان استفاده می‌شود؛ وگرنه مقدار پیش‌فرض برای ساخت محلی.
  */
 val appVersionName: String = System.getenv("APP_VERSION_NAME")?.trim()?.removePrefix("v")
-    ?.takeIf { it.isNotBlank() } ?: "2.9"
+    ?.takeIf { it.isNotBlank() } ?: "3.0"
 
 /**
  * کد نسخه به‌صورت عددی از روی نام نسخه ساخته می‌شود:

@@ -367,13 +367,16 @@ class RemoteDataSource(private val auth: AuthClient) {
                 ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))
 
             val objectPath = "$userId/${System.currentTimeMillis()}_${file.name}"
-            val body = ProgressRequestBody(file, "image/jpeg".toMediaType(), onProgress)
+            // برش دایره‌ای خروجی WebP دارد؛ اگر نوع را jpeg اعلام کنیم،
+            // مرورگر و Coil شفافیت را درست تفسیر نمی‌کنند.
+            val mime = if (file.extension.equals("webp", true)) "image/webp" else "image/jpeg"
+            val body = ProgressRequestBody(file, mime.toMediaType(), onProgress)
 
             val req = Request.Builder()
                 .url("$storageUrl/object/$BUCKET/$objectPath")
                 .addHeader("apikey", SupabaseConfig.ANON_KEY)
                 .addHeader("Authorization", "Bearer $token")
-                .addHeader("Content-Type", "image/jpeg")
+                .addHeader("Content-Type", mime)
                 // اگر فایلی با همین نام بود، جایگزین شود
                 .addHeader("x-upsert", "true")
                 .post(body)

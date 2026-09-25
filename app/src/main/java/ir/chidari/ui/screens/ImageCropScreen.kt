@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,20 +64,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.chidari.ui.crop.CropGeometry
-import ir.chidari.ui.crop.CropHandle
+import ir.chidari.ui.crop.CropShape
 import ir.chidari.ui.crop.FrameRect
 import ir.chidari.ui.crop.Luma
 
-/** نسبت‌های برش که کاربر می‌تواند انتخاب کند. */
-private enum class CropRatio(val label: String, val value: Float?) {
-    SQUARE("مربع", 1f),
-    PORTRAIT("۳:۴", 3f / 4f),
-    LANDSCAPE("۴:۳", 4f / 3f),
-    FREE("آزاد", null)
-}
-
 /** چه چیزی زیر انگشت در حال حرکت است. */
-private enum class DragMode { RESIZE, MOVE_FRAME, PAN_IMAGE }
+private enum class DragMode { RESIZE, MOVE_FRAME }
 
 /**
  * صفحه برش تصویر محصول.
@@ -98,14 +91,26 @@ fun ImageCropScreen(
     busy: Boolean,
     /** اگر باز کردن تصویر شکست خورده باشد، متن خطا؛ وگرنه null. */
     error: String? = null,
-    onConfirm: (Rect) -> Unit,
+    /** مستطیل برش و اینکه خروجی باید دایره‌ای باشد یا نه. */
+    onConfirm: (Rect, Boolean) -> Unit,
     onBack: () -> Unit
 ) {
-    var ratio by remember { mutableStateOf(CropRatio.SQUARE) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var shape by remember { mutableStateOf(CropShape.SQUARE) }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<FrameRect?>(null) }
+
+    /*
+     * محدوده‌ی واقعی تصویر روی صفحه. تصویر با Fit کشیده می‌شود و اطرافش نوار
+     * خالی می‌ماند؛ کادر برش نباید وارد آن نوار شود وگرنه ناحیه‌ی خالی هم
+     * بریده می‌شود. تصویر ثابت است و فقط کادر حرکت می‌کند — چون برش همیشه
+     * از فایل تمام‌کیفیت خوانده می‌شود، بزرگ‌نمایی تصویر هیچ سودی نداشت.
+     */
+    val imageBounds = remember(boxSize, bitmap) {
+        if (bitmap == null || boxSize.width == 0) null
+        else CropGeometry.imageBounds(
+            boxSize.width.toFloat(), boxSize.height.toFloat(), bitmap.width, bitmap.height
+        )
+    }
 
     val density = LocalDensity.current
     val touchRadius = with(density) { 26.dp.toPx() }
@@ -124,13 +129,7 @@ fun ImageCropScreen(
     val haloColor = if (bright) Color(0x73FFFFFF) else Color(0x73000000)
 
     fun resetFrame() {
-        scale = 1f
-        offset = Offset.Zero
-        if (boxSize.width > 0) {
-            frame = CropGeometry.initialFrame(
-                boxSize.width.toFloat(), boxSize.height.toFloat(), ratio.value, marginPx
-            )
-        }
+        imageBounds?.let { frame = CropGeometry.initialFrame(it, shape.ratio, marginPx) }
     }
 
     Scaffold(
@@ -217,73 +216,57 @@ fun ImageCropScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .clipToBounds()
-                    .onSizeChanged { size ->
-                        boxSize = size
-                        if (frame == null && size.width > 0) {
-                            frame = CropGeometry.initialFrame(
-                                size.width.toFloat(), size.height.toFloat(),
-                                ratio.value, marginPx
-                            )
-                        }
-                    }
+                    .onSizeChanged { boxSize = it }
                     /*
-                     * یک شناساگر دست‌نویس به‌جای چند pointerInput جداگانه.
+                     * یک شناساگر دست‌نویس به‌جای مدیفایرهای آماده.
                      *
-                     * چرا: اگر تشخیص کشیدن (کادر) و تشخیص تبدیل (بزرگ‌نمایی) را
-                     * روی دو مدیفایر بگذاریم، اولی همه‌ی لمس‌ها را می‌بلعد و
-                     * بزرگ‌نمایی از کار می‌افتد. اینجا خودمان تصمیم می‌گیریم:
-                     * دو انگشت = تصویر، یک انگشت = بسته به محل شروع لمس.
+                     * چرا: اگر تشخیص کشیدن و تشخیص تبدیل را روی دو مدیفایر
+                     * جدا بگذاریم، اولی همه‌ی لمس‌ها را می‌بلعد و حرکت دو
+                     * انگشتی هرگز اجرا نمی‌شود.
+                     *
+                     * قرارداد لمس:
+                     *   دستگیره + یک انگشت → فقط همان ضلع/گوشه
+                     *   یک انگشت (هرجای دیگر) → جابه‌جایی کل کادر
+                     *   دو انگشت → بزرگ/کوچک کردن کادر حول مرکز
                      */
-                    .pointerInput(boxSize, ratio) {
+                    .pointerInput(boxSize, shape, imageBounds) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            val bounds = imageBounds ?: return@awaitEachGesture
                             val f0 = frame ?: return@awaitEachGesture
 
-                            var handle = CropGeometry.hitTest(
+                            val handle = CropGeometry.hitTest(
                                 down.position.x, down.position.y, f0, touchRadius
                             )
-                            var mode = when {
-                                handle != null -> DragMode.RESIZE
-                                f0.contains(down.position.x, down.position.y) -> DragMode.MOVE_FRAME
-                                else -> DragMode.PAN_IMAGE
-                            }
-                            var multiTouch = false
+                            val mode = if (handle != null) DragMode.RESIZE else DragMode.MOVE_FRAME
+                            var pinching = false
 
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val active = event.changes.filter { it.pressed }
                                 if (active.isEmpty()) break
 
+                                val cur = frame ?: break
+
                                 if (active.size >= 2) {
-                                    // دو انگشت: همیشه بزرگ‌نمایی/جابه‌جایی تصویر
-                                    multiTouch = true
+                                    // دو انگشت: کادر بزرگ و کوچک می‌شود
+                                    pinching = true
                                     val zoom = event.calculateZoom()
-                                    val pan = event.calculatePan()
-                                    if (zoom != 1f || pan != Offset.Zero) {
-                                        scale = (scale * zoom).coerceIn(1f, 6f)
-                                        offset += pan
+                                    if (zoom != 1f) {
+                                        frame = CropGeometry.scaleAround(cur, zoom, bounds, minFrame)
                                         event.changes.forEach { it.consume() }
                                     }
-                                } else if (!multiTouch) {
+                                } else if (!pinching) {
                                     val change: PointerInputChange = active.first()
                                     val d = change.positionChange()
                                     if (d != Offset.Zero) {
-                                        val bw = boxSize.width.toFloat()
-                                        val bh = boxSize.height.toFloat()
-                                        val cur = frame
-                                        if (cur != null) {
-                                            frame = when (mode) {
-                                                DragMode.RESIZE -> CropGeometry.resize(
-                                                    cur, handle!!, d.x, d.y, bw, bh,
-                                                    ratio.value, minFrame
-                                                )
-                                                DragMode.MOVE_FRAME ->
-                                                    CropGeometry.move(cur, d.x, d.y, bw, bh)
-                                                DragMode.PAN_IMAGE -> {
-                                                    offset += d
-                                                    cur
-                                                }
-                                            }
+                                        frame = when (mode) {
+                                            DragMode.RESIZE -> CropGeometry.resize(
+                                                cur, handle!!, d.x, d.y, bounds,
+                                                minFrame, shape.forceSquare
+                                            )
+                                            DragMode.MOVE_FRAME ->
+                                                CropGeometry.move(cur, d.x, d.y, bounds)
                                         }
                                         change.consume()
                                     }
@@ -297,19 +280,18 @@ fun ImageCropScreen(
                     bitmap = bitmap.asImageBitmap(),
                     contentDescription = "تصویر محصول",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y
-                        )
+                    modifier = Modifier.fillMaxSize()
                 )
+
+                // کادر اولیه به محض معلوم شدن محدوده‌ی تصویر ساخته می‌شود
+                LaunchedEffect(imageBounds, shape) {
+                    imageBounds?.let { frame = CropGeometry.initialFrame(it, shape.ratio, marginPx) }
+                }
 
                 frame?.let {
                     CropOverlay(
                         frame = it,
+                        circular = shape == CropShape.CIRCLE,
                         frameColor = frameColor,
                         haloColor = haloColor,
                         handleLengthPx = with(density) { 26.dp.toPx() },
@@ -325,7 +307,7 @@ fun ImageCropScreen(
                     .padding(14.dp)
             ) {
                 Text(
-                    "دستگیره‌ها را بکشید تا کادر تغییر کند • داخل کادر = جابه‌جایی • دو انگشت = بزرگ‌نمایی",
+                    "دستگیره = فقط همان ضلع • یک انگشت = جابه‌جایی کادر • دو انگشت = بزرگ و کوچک کردن کادر",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -337,20 +319,14 @@ fun ImageCropScreen(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CropRatio.entries.forEach { r ->
+                    CropShape.entries.forEach { sh ->
                         FilterChip(
-                            selected = ratio == r,
-                            onClick = {
-                                ratio = r
-                                // کادر با نسبت تازه از نو ساخته می‌شود؛ تصویر دست نمی‌خورد
-                                if (boxSize.width > 0) {
-                                    frame = CropGeometry.initialFrame(
-                                        boxSize.width.toFloat(), boxSize.height.toFloat(),
-                                        r.value, marginPx
-                                    )
-                                }
+                            selected = shape == sh,
+                            // تغییر شکل، کادر را از نو می‌سازد (LaunchedEffect بالا)
+                            onClick = { shape = sh },
+                            label = {
+                                Text(sh.label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                             },
-                            label = { Text(r.label, style = MaterialTheme.typography.labelMedium) },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.weight(1f)
                         )
@@ -369,23 +345,13 @@ fun ImageCropScreen(
                     Button(
                         onClick = {
                             val f = frame ?: return@Button
-                            val r = CropGeometry.toSourceRect(
-                                frame = f,
-                                bitmapW = bitmap.width,
-                                bitmapH = bitmap.height,
-                                sourceW = sourceWidth,
-                                sourceH = sourceHeight,
-                                boxW = boxSize.width.toFloat(),
-                                boxH = boxSize.height.toFloat(),
-                                scale = scale,
-                                offsetX = offset.x,
-                                offsetY = offset.y
-                            )
-                            onConfirm(Rect(r[0], r[1], r[2], r[3]))
+                            val b = imageBounds ?: return@Button
+                            val r = CropGeometry.toSourceRect(f, b, sourceWidth, sourceHeight)
+                            onConfirm(Rect(r[0], r[1], r[2], r[3]), shape == CropShape.CIRCLE)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        enabled = !busy && boxSize.width > 0 && frame != null
+                        enabled = !busy && frame != null && imageBounds != null
                     ) {
                         if (busy) {
                             CircularProgressIndicator(
@@ -405,6 +371,7 @@ fun ImageCropScreen(
 @Composable
 private fun CropOverlay(
     frame: FrameRect,
+    circular: Boolean,
     frameColor: Color,
     haloColor: Color,
     handleLengthPx: Float,
@@ -417,47 +384,58 @@ private fun CropOverlay(
         val t = frame.top
         val fw = frame.width
         val fh = frame.height
-
-        // چهار مستطیل تیره اطراف پنجره
         val shade = Color(0x99000000)
-        drawRect(shade, topLeft = Offset(0f, 0f), size = Size(w, t))
-        drawRect(shade, topLeft = Offset(0f, t + fh), size = Size(w, (h - t - fh).coerceAtLeast(0f)))
-        drawRect(shade, topLeft = Offset(0f, t), size = Size(l, fh))
-        drawRect(
-            shade,
-            topLeft = Offset(l + fw, t),
-            size = Size((w - l - fw).coerceAtLeast(0f), fh)
-        )
 
-        // هاله‌ی ضدرنگ زیر قاب اصلی
-        drawRect(
-            color = haloColor,
-            topLeft = Offset(l, t),
-            size = Size(fw, fh),
-            style = Stroke(width = handleThicknessPx * 0.9f)
-        )
-        drawRect(
-            color = frameColor,
-            topLeft = Offset(l, t),
-            size = Size(fw, fh),
-            style = Stroke(width = handleThicknessPx * 0.38f)
-        )
+        if (circular) {
+            /*
+             * برای دایره نمی‌شود با چهار مستطیل پرده کشید. کل صفحه تیره
+             * می‌شود و بعد دایره با BlendMode.Clear پاک می‌شود — به یک لایه‌ی
+             * جدا نیاز دارد، وگرنه پاک‌کننده روی تصویر زیرین هم اثر می‌گذارد.
+             */
+            drawContext.canvas.saveLayer(
+                androidx.compose.ui.geometry.Rect(0f, 0f, w, h),
+                androidx.compose.ui.graphics.Paint()
+            )
+            drawRect(shade, topLeft = Offset(0f, 0f), size = Size(w, h))
+            drawCircle(
+                color = Color.Black,
+                radius = minOf(fw, fh) / 2f,
+                center = Offset(frame.centerX, frame.centerY),
+                blendMode = androidx.compose.ui.graphics.BlendMode.Clear
+            )
+            drawContext.canvas.restore()
+        } else {
+            // چهار مستطیل تیره اطراف پنجره
+            drawRect(shade, topLeft = Offset(0f, 0f), size = Size(w, t))
+            drawRect(shade, topLeft = Offset(0f, t + fh), size = Size(w, (h - t - fh).coerceAtLeast(0f)))
+            drawRect(shade, topLeft = Offset(0f, t), size = Size(l, fh))
+            drawRect(shade, topLeft = Offset(l + fw, t), size = Size((w - l - fw).coerceAtLeast(0f), fh))
+        }
 
-        // خطوط راهنمای یک‌سوم
-        val guide = frameColor.copy(alpha = 0.34f)
-        for (i in 1..2) {
-            drawLine(
-                guide,
-                Offset(l + fw * i / 3f, t),
-                Offset(l + fw * i / 3f, t + fh),
-                strokeWidth = handleThicknessPx * 0.28f
-            )
-            drawLine(
-                guide,
-                Offset(l, t + fh * i / 3f),
-                Offset(l + fw, t + fh * i / 3f),
-                strokeWidth = handleThicknessPx * 0.28f
-            )
+        // ---- قاب: هاله‌ی ضدرنگ زیر خط اصلی ----
+        if (circular) {
+            val r = minOf(fw, fh) / 2f
+            val c = Offset(frame.centerX, frame.centerY)
+            drawCircle(haloColor, radius = r, center = c, style = Stroke(handleThicknessPx * 0.9f))
+            drawCircle(frameColor, radius = r, center = c, style = Stroke(handleThicknessPx * 0.38f))
+        } else {
+            drawRect(haloColor, Offset(l, t), Size(fw, fh), style = Stroke(handleThicknessPx * 0.9f))
+            drawRect(frameColor, Offset(l, t), Size(fw, fh), style = Stroke(handleThicknessPx * 0.38f))
+        }
+
+        // ---- خطوط راهنمای یک‌سوم (فقط برای کادر مستطیلی) ----
+        if (!circular) {
+            val guide = frameColor.copy(alpha = 0.34f)
+            for (i in 1..2) {
+                drawLine(
+                    guide, Offset(l + fw * i / 3f, t), Offset(l + fw * i / 3f, t + fh),
+                    strokeWidth = handleThicknessPx * 0.28f
+                )
+                drawLine(
+                    guide, Offset(l, t + fh * i / 3f), Offset(l + fw, t + fh * i / 3f),
+                    strokeWidth = handleThicknessPx * 0.28f
+                )
+            }
         }
 
         // طول دستگیره هرگز از نصف ضلع بیشتر نشود (کادر خیلی کوچک)
@@ -470,14 +448,16 @@ private fun CropOverlay(
             drawHandleLine(cx, cy, cx + armX * dirX, cy, th, haloColor, frameColor)
             drawHandleLine(cx, cy, cx, cy + armY * dirY, th, haloColor, frameColor)
         }
-        corner(l, t, 1f, 1f)
-        corner(l + fw, t, -1f, 1f)
-        corner(l, t + fh, 1f, -1f)
-        corner(l + fw, t + fh, -1f, -1f)
+        if (!circular) {
+            corner(l, t, 1f, 1f)
+            corner(l + fw, t, -1f, 1f)
+            corner(l, t + fh, 1f, -1f)
+            corner(l + fw, t + fh, -1f, -1f)
+        }
 
-        // ---- وسط هر ضلع ----
-        val midX = l + fw / 2f
-        val midY = t + fh / 2f
+        // ---- وسط هر ضلع: روی دایره هم همان‌جاست تا لمس یکسان بماند ----
+        val midX = frame.centerX
+        val midY = frame.centerY
         drawHandleLine(midX - armX / 2f, t, midX + armX / 2f, t, th, haloColor, frameColor)
         drawHandleLine(midX - armX / 2f, t + fh, midX + armX / 2f, t + fh, th, haloColor, frameColor)
         drawHandleLine(l, midY - armY / 2f, l, midY + armY / 2f, th, haloColor, frameColor)

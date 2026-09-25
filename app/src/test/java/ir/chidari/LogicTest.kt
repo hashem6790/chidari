@@ -515,18 +515,40 @@ class CropFrameTest {
     private fun rect(l: Float, t: Float, r: Float, b: Float) =
         ir.chidari.ui.crop.FrameRect(l, t, r, b)
 
+    /** محدوده‌ی نمونه: کل صفحه ۱۰۰۰×۱۰۰۰ */
+    private val full = rect(0f, 0f, 1000f, 1000f)
+
     @Test fun `initial frame keeps the requested ratio and is centred`() {
-        val f = G.initialFrame(boxW = 1000f, boxH = 600f, ratio = 1f, margin = 20f)
+        val f = G.initialFrame(rect(0f, 0f, 1000f, 600f), ratio = 1f, margin = 20f)
         assertEquals(560f, f.width, 0.5f)
         assertEquals(560f, f.height, 0.5f)
         assertEquals(500f, f.centerX, 0.5f)
         assertEquals(300f, f.centerY, 0.5f)
     }
 
-    @Test fun `free ratio fills the box minus the margin`() {
-        val f = G.initialFrame(1000f, 600f, null, 20f)
+    @Test fun `free ratio fills the bounds minus the margin`() {
+        val f = G.initialFrame(rect(0f, 0f, 1000f, 600f), null, 20f)
         assertEquals(960f, f.width, 0.5f)
         assertEquals(560f, f.height, 0.5f)
+    }
+
+    /** محدوده می‌تواند از صفر شروع نشود (تصویر با Fit وسط‌چین است). */
+    @Test fun `initial frame respects an offset bounds`() {
+        val bounds = rect(100f, 50f, 500f, 450f)
+        val f = G.initialFrame(bounds, 1f, 0f)
+        assertEquals(300f, f.centerX, 0.5f)
+        assertEquals(250f, f.centerY, 0.5f)
+        assertTrue(f.left >= bounds.left && f.right <= bounds.right)
+    }
+
+    // ---------- محدوده‌ی تصویر ----------
+
+    @Test fun `image bounds letterbox a wide photo inside a square box`() {
+        val b = G.imageBounds(boxW = 1000f, boxH = 1000f, bitmapW = 2000, bitmapH = 1000)
+        assertEquals(0f, b.left, 0.5f)
+        assertEquals(1000f, b.width, 0.5f)
+        assertEquals(500f, b.height, 0.5f)
+        assertEquals(250f, b.top, 0.5f)   // نوار خالی بالا و پایین
     }
 
     // ---------- تشخیص دستگیره ----------
@@ -544,119 +566,182 @@ class CropFrameTest {
     }
 
     @Test fun `middle of the frame is not a handle`() {
-        val f = rect(100f, 100f, 300f, 300f)
-        assertNull(G.hitTest(200f, 200f, f, 20f))
+        assertNull(G.hitTest(200f, 200f, rect(100f, 100f, 300f, 300f), 20f))
     }
 
-    /** در گوشه، ناحیه‌ی گوشه و ضلع روی هم می‌افتند؛ گوشه باید برنده شود. */
     @Test fun `corner wins over edge when both are in range`() {
-        val f = rect(100f, 100f, 160f, 300f)   // کادر باریک: مرکز افقی نزدیک گوشه است
+        val f = rect(100f, 100f, 160f, 300f)
         assertEquals(H.TOP_LEFT, G.hitTest(105f, 102f, f, 40f))
     }
 
-    // ---------- جابه‌جایی ----------
+    // ---------- جابه‌جایی کل کادر (یک انگشت) ----------
 
     @Test fun `move shifts the frame without resizing it`() {
         val f = rect(100f, 100f, 300f, 200f)
-        val m = G.move(f, 50f, -30f, 1000f, 1000f)
+        val m = G.move(f, 50f, -30f, full)
         assertEquals(150f, m.left, 0.01f)
         assertEquals(70f, m.top, 0.01f)
         assertEquals(f.width, m.width, 0.01f)
         assertEquals(f.height, m.height, 0.01f)
     }
 
-    @Test fun `move is clamped at the edges instead of leaving the screen`() {
-        val f = rect(0f, 0f, 200f, 200f)
-        val m = G.move(f, -100f, -100f, 500f, 500f)
-        assertEquals("نباید از لبه چپ بیرون بزند", 0f, m.left, 0.01f)
-        assertEquals("نباید از لبه بالا بیرون بزند", 0f, m.top, 0.01f)
-        assertEquals(200f, m.width, 0.01f)
+    @Test fun `move is clamped to the image bounds`() {
+        val bounds = rect(100f, 100f, 400f, 400f)
+        val f = rect(100f, 100f, 200f, 200f)
+        val m = G.move(f, -999f, -999f, bounds)
+        assertEquals(100f, m.left, 0.01f)
+        assertEquals(100f, m.top, 0.01f)
 
-        val m2 = G.move(f, 999f, 999f, 500f, 500f)
-        assertEquals(500f, m2.right, 0.01f)
-        assertEquals(500f, m2.bottom, 0.01f)
+        val m2 = G.move(f, 999f, 999f, bounds)
+        assertEquals(400f, m2.right, 0.01f)
+        assertEquals(400f, m2.bottom, 0.01f)
     }
 
-    // ---------- تغییر اندازه ----------
+    // ---------- دستگیره: فقط همان ضلع ----------
 
-    @Test fun `free resize moves only the dragged edge`() {
+    @Test fun `dragging the right handle moves only the right edge`() {
         val f = rect(100f, 100f, 300f, 300f)
-        val r = G.resize(f, H.RIGHT, 40f, 0f, 1000f, 1000f, null, 64f)
-        assertEquals(340f, r.right, 0.01f)
-        assertEquals(100f, r.left, 0.01f)
-        assertEquals(f.height, r.height, 0.01f)
-    }
-
-    @Test fun `locked ratio stays square while resizing a corner`() {
-        val f = rect(100f, 100f, 300f, 300f)
-        val r = G.resize(
-            f, H.BOTTOM_RIGHT, 60f, 10f, 1000f, 1000f, 1f, 64f
-        )
-        assertEquals("نسبت مربع باید حفظ شود", r.width, r.height, 0.5f)
-        assertTrue("باید بزرگ‌تر شده باشد", r.width > f.width)
-        // لنگر: گوشه بالا-چپ ثابت
+        val r = G.resize(f, H.RIGHT, 40f, 0f, full, 64f)
+        assertEquals("فقط راست باید عوض شود", 340f, r.right, 0.01f)
         assertEquals(100f, r.left, 0.01f)
         assertEquals(100f, r.top, 0.01f)
+        assertEquals(300f, r.bottom, 0.01f)
     }
 
-    @Test fun `locked ratio 4 to 3 is preserved`() {
-        val f = G.initialFrame(1000f, 1000f, 4f / 3f, 20f)
-        val r = G.resize(
-            f, H.BOTTOM_RIGHT, -80f, 0f, 1000f, 1000f, 4f / 3f, 64f
-        )
-        assertEquals(4f / 3f, r.width / r.height, 0.02f)
+    /** با نسبت ۳:۴ هم دیگر ضلع‌های دیگر تکان نمی‌خورند. */
+    @Test fun `a preset ratio no longer drags the other edges along`() {
+        val f = G.initialFrame(full, 3f / 4f, 20f)
+        val r = G.resize(f, H.TOP, -30f, -30f, full, 64f)
+        assertEquals("پایین نباید حرکت کند", f.bottom, r.bottom, 0.01f)
+        assertEquals("چپ نباید حرکت کند", f.left, r.left, 0.01f)
+        assertEquals("راست نباید حرکت کند", f.right, r.right, 0.01f)
+    }
+
+    @Test fun `dragging a corner moves exactly two edges`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        val r = G.resize(f, H.BOTTOM_RIGHT, 25f, 40f, full, 64f)
+        assertEquals(100f, r.left, 0.01f)
+        assertEquals(100f, r.top, 0.01f)
+        assertEquals(325f, r.right, 0.01f)
+        assertEquals(340f, r.bottom, 0.01f)
     }
 
     @Test fun `resize refuses to go below the minimum size`() {
         val f = rect(100f, 100f, 180f, 180f)
-        val r = G.resize(f, H.RIGHT, -60f, 0f, 1000f, 1000f, null, 64f)
-        assertEquals("کادر نباید از حداقل کوچک‌تر شود", f, r)
+        val r = G.resize(f, H.RIGHT, -60f, 0f, full, 64f)
+        assertEquals(164f, r.right, 0.01f)   // دقیقاً تا حداقل، نه کمتر
+        assertTrue(r.width >= 64f)
     }
 
-    @Test fun `resize never leaves the screen`() {
-        val f = rect(0f, 0f, 200f, 200f)
-        val r = G.resize(f, H.LEFT, -50f, 0f, 500f, 500f, null, 64f)
-        assertTrue("چپ نباید منفی شود", r.left >= 0f)
+    @Test fun `resize never leaves the image bounds`() {
+        val bounds = rect(50f, 50f, 450f, 450f)
+        val f = rect(50f, 50f, 250f, 250f)
+        val r = G.resize(f, H.LEFT, -500f, 0f, bounds, 64f)
+        assertTrue("چپ نباید از محدوده تصویر بیرون برود", r.left >= bounds.left)
+    }
+
+    // ---------- دایره ----------
+
+    @Test fun `circle stays circular when a handle is dragged`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        val r = G.resize(f, H.RIGHT, 40f, 0f, full, 64f, forceSquare = true)
+        assertEquals("باید مربع (یعنی دایره) بماند", r.width, r.height, 0.5f)
+        assertEquals(240f, r.width, 0.5f)
+        assertEquals("ضلع مقابل لنگر می‌ماند", 100f, r.left, 0.01f)
+    }
+
+    @Test fun `circle shrinks when dragged inwards`() {
+        val f = rect(100f, 100f, 300f, 300f)
+        val r = G.resize(f, H.BOTTOM, -50f, -50f, full, 64f, forceSquare = true)
+        assertEquals(r.width, r.height, 0.5f)
+        assertTrue("باید کوچک‌تر شده باشد", r.width < f.width)
+    }
+
+    // ---------- دو انگشت ----------
+
+    @Test fun `pinch grows the frame around its centre`() {
+        val f = rect(400f, 400f, 600f, 600f)
+        val r = G.scaleAround(f, 1.5f, full, 64f)
+        assertEquals(300f, r.width, 0.5f)
+        assertEquals("مرکز نباید جابه‌جا شود", f.centerX, r.centerX, 0.5f)
+        assertEquals(f.centerY, r.centerY, 0.5f)
+    }
+
+    @Test fun `pinch keeps the aspect ratio`() {
+        val f = rect(0f, 0f, 400f, 300f)
+        val r = G.scaleAround(f, 0.5f, full, 64f)
+        assertEquals(4f / 3f, r.width / r.height, 0.02f)
+    }
+
+    @Test fun `pinch is pushed back inside instead of overflowing`() {
+        val bounds = rect(0f, 0f, 400f, 400f)
+        val f = rect(220f, 220f, 380f, 380f)       // نزدیک گوشه
+        val r = G.scaleAround(f, 1.8f, bounds, 64f)
+        assertTrue(r.left >= -0.5f && r.top >= -0.5f)
+        assertTrue(r.right <= 400.5f && r.bottom <= 400.5f)
+    }
+
+    @Test fun `pinch cannot exceed the image bounds`() {
+        val bounds = rect(0f, 0f, 400f, 400f)
+        val f = rect(0f, 0f, 400f, 400f)
+        assertEquals("بزرگ‌تر از تصویر نمی‌شود", f, G.scaleAround(f, 2f, bounds, 64f))
+    }
+
+    @Test fun `pinch cannot go below the minimum size`() {
+        val f = rect(0f, 0f, 70f, 70f)
+        assertEquals(f, G.scaleAround(f, 0.5f, full, 64f))
     }
 
     // ---------- نگاشت به تصویر اصلی ----------
 
-    @Test fun `full frame with no zoom maps to the whole source image`() {
-        // بیت‌مپ ۴۰۰×۴۰۰ در جعبه ۴۰۰×۴۰۰، بدون بزرگ‌نمایی، کادر کل جعبه
-        val r = G.toSourceRect(
-            frame = rect(0f, 0f, 400f, 400f),
-            bitmapW = 400, bitmapH = 400,
-            sourceW = 4000, sourceH = 4000,
-            boxW = 400f, boxH = 400f,
-            scale = 1f, offsetX = 0f, offsetY = 0f
-        )
+    @Test fun `full frame maps to the whole source image`() {
+        val bounds = rect(0f, 0f, 400f, 400f)
+        val r = G.toSourceRect(bounds, bounds, 4000, 4000)
         assertEquals(0, r[0]); assertEquals(0, r[1])
         assertEquals(4000, r[2]); assertEquals(4000, r[3])
     }
 
     @Test fun `half frame maps to a quarter of the source area`() {
-        val r = G.toSourceRect(
-            frame = rect(0f, 0f, 200f, 200f),
-            bitmapW = 400, bitmapH = 400,
-            sourceW = 4000, sourceH = 4000,
-            boxW = 400f, boxH = 400f,
-            scale = 1f, offsetX = 0f, offsetY = 0f
-        )
+        val bounds = rect(0f, 0f, 400f, 400f)
+        val r = G.toSourceRect(rect(0f, 0f, 200f, 200f), bounds, 4000, 4000)
         assertEquals(0, r[0]); assertEquals(0, r[1])
         assertEquals(2000, r[2]); assertEquals(2000, r[3])
     }
 
+    /** محدوده‌ی جابه‌جاشده (نوار خالی) نباید نگاشت را بشکند. */
+    @Test fun `letterboxed bounds map correctly`() {
+        val bounds = rect(0f, 250f, 1000f, 750f)      // تصویر عریض، وسط صفحه
+        val r = G.toSourceRect(rect(0f, 250f, 500f, 500f), bounds, 2000, 1000)
+        assertEquals(0, r[0]); assertEquals(0, r[1])
+        assertEquals(1000, r[2]); assertEquals(500, r[3])
+    }
+
     @Test fun `result is always inside the source bounds`() {
-        val r = G.toSourceRect(
-            frame = rect(-500f, -500f, 900f, 900f),   // کادر عمداً بیرون‌زده
-            bitmapW = 400, bitmapH = 400,
-            sourceW = 1000, sourceH = 1000,
-            boxW = 400f, boxH = 400f,
-            scale = 1f, offsetX = 0f, offsetY = 0f
-        )
+        val bounds = rect(0f, 0f, 400f, 400f)
+        val r = G.toSourceRect(rect(-500f, -500f, 900f, 900f), bounds, 1000, 1000)
         assertTrue(r[0] >= 0 && r[1] >= 0)
         assertTrue(r[2] <= 1000 && r[3] <= 1000)
-        assertTrue("عرض باید مثبت بماند", r[2] > r[0])
+        assertTrue(r[2] > r[0])
+    }
+}
+
+/** شکل‌های کادر برش. */
+class CropShapeTest {
+
+    @Test fun `circle is the only shape that must stay square`() {
+        val forced = ir.chidari.ui.crop.CropShape.entries.filter { it.forceSquare }
+        assertEquals(listOf(ir.chidari.ui.crop.CropShape.CIRCLE), forced)
+    }
+
+    @Test fun `circle sits next to square in the chip row`() {
+        val labels = ir.chidari.ui.crop.CropShape.entries.map { it.label }
+        assertEquals(listOf("مربع", "دایره", "۳:۴", "۴:۳", "آزاد"), labels)
+    }
+
+    @Test fun `square and circle both start from a one to one frame`() {
+        assertEquals(1f, ir.chidari.ui.crop.CropShape.SQUARE.ratio)
+        assertEquals(1f, ir.chidari.ui.crop.CropShape.CIRCLE.ratio)
+        assertNull(ir.chidari.ui.crop.CropShape.FREE.ratio)
     }
 }
 

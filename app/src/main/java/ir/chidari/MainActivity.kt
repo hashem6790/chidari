@@ -743,7 +743,9 @@ private fun ChiDariRoot() {
                 busy = st is ProductImageState.Processing,
                 // خطا دیگر بی‌صدا نیست: روی همین صفحه نشان داده می‌شود
                 error = (st as? ProductImageState.Failed)?.message,
-                onConfirm = { rect -> vm.cropAndCompress(rect) { popCrop() } },
+                onConfirm = { rect, circular ->
+                    vm.cropAndCompress(rect, circular) { popCrop() }
+                },
                 onBack = { vm.cancelImage(); popCrop() }
             )
         }

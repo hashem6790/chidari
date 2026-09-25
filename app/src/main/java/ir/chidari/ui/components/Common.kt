@@ -95,11 +95,17 @@ fun ChipRow(
     onSelect: (String) -> Unit,
     allLabel: String = "همه",
     leadingEmoji: ((String) -> String)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * فاصله‌ی داخلی ردیف. اگر والد از قبل فاصله دارد، صفر بدهید.
+     * پیش‌تر برای «تا لبه رفتن» از padding منفی استفاده شده بود که Compose
+     * آن را نمی‌پذیرد و برنامه را می‌انداخت.
+     */
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp)
 ) {
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {

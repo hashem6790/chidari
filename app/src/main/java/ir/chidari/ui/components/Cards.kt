@@ -195,9 +195,14 @@ fun ProductCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textDecoration = TextDecoration.LineThrough
                         )
-                        Spacer(Modifier.width(6.dp))
-                        DiscountBadge(p.discountPercent)
                     }
+                }
+
+                // نشان تخفیف در سطر خودش، زیر قیمت — روی عنوان‌های بلند و
+                // قیمت‌های چندرقمی جا کم می‌آورد و از کارت بیرون می‌زد
+                if (p.discountPercent > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    DiscountBadge(p.discountPercent)
                 }
 
                 if (showStore) {
