@@ -1,0 +1,184 @@
+name: چی داری؟
+
+# ---------------------------------------------------------------------------
+#  تنها ورکفلو پروژه.
+#
+#  سه کار را انجام می‌دهد و خودش تشخیص می‌دهد کدام لازم است:
+#    • هر push روی main یا هر Pull Request → تست + APK دیباگ (Artifact)
+#    • تگ vX.Y                            → تست + APK امضاشده + انتشار Release
+#    • اجرای دستی                         → اگر شماره نسخه بدهید منتشر می‌کند،
+#                                           وگرنه فقط دیباگ می‌سازد
+#
+#  عمداً یک Job است و نه چند تا: هر Job جداگانه یعنی یک بار دیگر نصب JDK و
+#  دانلود وابستگی‌های Gradle. با یک Job، مراحل مشترک فقط یک بار اجرا می‌شوند.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'شماره نسخه برای انتشار (مثلاً 2.8). خالی بگذارید تا فقط APK دیباگ ساخته شود.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write        # برای ساختن Release لازم است
+
+# اگر چند push پشت سر هم زده شد، اجرای قبلی لغو شود تا صف نگیرد.
+# تگ‌ها استثنا هستند: انتشار نیمه‌کاره نباید لغو شود.
+concurrency:
+  group: chidari-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: تست، ساخت و انتشار
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------- آماده‌سازی
+      - name: دریافت سورس
+        uses: actions/checkout@v4
+
+      - name: آماده‌سازی JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: تعیین حالت اجرا
+        id: mode
+        # خروجی release=true یعنی باید نسخه امضاشده منتشر شود
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "release=true"  >> $GITHUB_OUTPUT
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "حالت: انتشار دستی نسخه ${{ github.event.inputs.version }}"
+          elif [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            V="${GITHUB_REF_NAME#v}"
+            echo "release=true"  >> $GITHUB_OUTPUT
+            echo "version=$V"    >> $GITHUB_OUTPUT
+            echo "حالت: انتشار نسخه $V از روی تگ"
+          else
+            echo "release=false" >> $GITHUB_OUTPUT
+            echo "version="      >> $GITHUB_OUTPUT
+            echo "حالت: فقط تست و APK دیباگ"
+          fi
+
+      - name: ساخت فایل کلیدهای Supabase
+        # کلیدها از GitHub Secrets خوانده می‌شوند، نه از سورس.
+        # اگر Secret تنظیم نشده باشد فایل خالی ساخته می‌شود و اپ در
+        # «حالت مهمان» build می‌گردد — build نمی‌شکند.
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > secrets.properties
+          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> secrets.properties
+
+      - name: اجازه اجرا به gradlew
+        run: chmod +x ./gradlew
+
+      # ------------------------------------------------- تست (همیشه)
+      - name: اجرای تست‌های واحد
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      # ------------------------------------------------- مسیر دیباگ
+      - name: ساخت APK دیباگ
+        if: steps.mode.outputs.release != 'true'
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: بارگذاری APK دیباگ به‌عنوان Artifact
+        if: steps.mode.outputs.release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChiDari-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      # ------------------------------------------------- مسیر انتشار
+      - name: بازسازی کلید امضا از Secret
+        # کلید به‌صورت base64 در Secret نگهداری می‌شود.
+        # امضای یکسان تضمین می‌کند نسخه تازه روی نسخه قبلی نصب شود.
+        if: steps.mode.outputs.release == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::KEYSTORE_BASE64 تنظیم نشده — بدون آن APK امضا نمی‌شود"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > release.keystore
+          echo "کلید بازسازی شد ($(stat -c%s release.keystore) بایت)"
+
+      - name: ساخت APK امضاشده
+        if: steps.mode.outputs.release == 'true'
+        env:
+          # نسخه از تگ می‌آید تا با نام Release یکی باشد
+          APP_VERSION_NAME: ${{ steps.mode.outputs.version }}
+          KEYSTORE_FILE: ../release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: تأیید امضا و هماهنگی نسخه
+        if: steps.mode.outputs.release == 'true'
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          echo "فایل: $APK"
+
+          "$TOOLS/apksigner" verify --print-certs "$APK" \
+            | grep -i "signer #1 certificate SHA-256" || echo "هشدار: امضا بررسی نشد"
+
+          INNER=$("$TOOLS/aapt2" dump badging "$APK" | grep -oP "versionName='\K[^']+")
+          echo "نسخه داخل APK: $INNER | نسخه خواسته‌شده: ${{ steps.mode.outputs.version }}"
+          if [ "$INNER" != "${{ steps.mode.outputs.version }}" ]; then
+            echo "::error::نسخه داخل APK با تگ یکی نیست — به‌روزرسان دچار حلقه می‌شود"
+            exit 1
+          fi
+          echo "✅ هماهنگ است"
+
+      - name: آماده‌سازی فایل خروجی
+        if: steps.mode.outputs.release == 'true'
+        run: |
+          mkdir -p dist
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          cp "$APK" "dist/ChiDari-${{ steps.mode.outputs.version }}.apk"
+          ls -lh dist/
+
+      - name: انتشار Release
+        if: steps.mode.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.mode.outputs.version }}
+          name: نسخه ${{ steps.mode.outputs.version }}
+          draft: false
+          prerelease: false
+          files: dist/*.apk
+          body: |
+            ## چی داری؟ — نسخه ${{ steps.mode.outputs.version }}
+
+            فایل نصبی را از بخش **Assets** پایین همین صفحه دانلود کنید.
+
+            ### نصب
+            اگر نسخه قبلی را دارید، این فایل **روی آن نصب می‌شود** و
+            داده‌هایتان پاک نمی‌شود.
+
+            > نخستین‌بار که از نسخه دیباگ به نسخه انتشار می‌روید، باید
+            > نسخه دیباگ را یک‌بار حذف کنید (شناسه بسته متفاوت است).
+
+            ### به‌روزرسانی خودکار
+            از داخل برنامه: **منو ☰ → درباره → بررسی به‌روزرسانی**
+
+      # ------------------------------------------------- در صورت شکست
+      - name: بارگذاری گزارش تست در صورت شکست
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
