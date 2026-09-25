@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,25 +81,34 @@ fun ProductEditorScreen(
     onSave: (ProductEntity) -> Unit,
     onBack: () -> Unit
 ) {
-    var title by remember { mutableStateOf(existing?.title ?: "") }
+    /*
+     * باگی که رفع شد: همه‌ی این مقادیر با `remember` ساده نگه داشته می‌شدند.
+     *
+     * وقتی کاربر برای افزودن عکس به صفحه برش می‌رفت، Navigation Compose
+     * ترکیب‌بندی این فرم را از بین می‌برد و `remember` هم با آن می‌رفت.
+     * هنگام بازگشت، فرم از صفر ساخته می‌شد: عنوان، قیمت و توضیحاتی که کاربر
+     * نوشته بود پاک شده بودند. `rememberSaveable` مقدارها را در حافظه‌ی
+     * ذخیره‌شده‌ی همین مقصد نگه می‌دارد، پس دست‌نخورده برمی‌گردند.
+     */
+    var title by rememberSaveable { mutableStateOf(existing?.title ?: "") }
     val suggestedCats = remember(storeCategory) {
         (Categories.productCategoriesOf(storeCategory) + Categories.allProductCategories).distinct()
     }
-    var category by remember { mutableStateOf(existing?.category ?: suggestedCats.first()) }
-    var priceText by remember { mutableStateOf(existing?.price?.toString() ?: "") }
-    var unit by remember { mutableStateOf(existing?.unit ?: Units.all.first()) }
-    var description by remember { mutableStateOf(existing?.description ?: "") }
-    var specs by remember { mutableStateOf(existing?.specs ?: "") }
-    var available by remember { mutableStateOf(existing?.available ?: true) }
-    var discountText by remember { mutableStateOf(existing?.discountPercent?.takeIf { it > 0 }?.toString() ?: "") }
-    var emoji by remember { mutableStateOf(existing?.emoji ?: "📦") }
-    var barcode by remember { mutableStateOf(existing?.barcode ?: "") }
+    var category by rememberSaveable { mutableStateOf(existing?.category ?: suggestedCats.first()) }
+    var priceText by rememberSaveable { mutableStateOf(existing?.price?.toString() ?: "") }
+    var unit by rememberSaveable { mutableStateOf(existing?.unit ?: Units.all.first()) }
+    var description by rememberSaveable { mutableStateOf(existing?.description ?: "") }
+    var specs by rememberSaveable { mutableStateOf(existing?.specs ?: "") }
+    var available by rememberSaveable { mutableStateOf(existing?.available ?: true) }
+    var discountText by rememberSaveable { mutableStateOf(existing?.discountPercent?.takeIf { it > 0 }?.toString() ?: "") }
+    var emoji by rememberSaveable { mutableStateOf(existing?.emoji ?: "📦") }
+    var barcode by rememberSaveable { mutableStateOf(existing?.barcode ?: "") }
 
     // وقتی از صفحه اسکن برمی‌گردیم، کد را در فرم می‌گذاریم
     LaunchedEffect(scannedBarcode) {
         if (scannedBarcode.isNotBlank()) barcode = scannedBarcode
     }
-    var attempted by remember { mutableStateOf(false) }
+    var attempted by rememberSaveable { mutableStateOf(false) }
 
     val price = priceText.toLongOrNull() ?: 0L
     val discount = discountText.toIntOrNull()?.coerceIn(0, 90) ?: 0

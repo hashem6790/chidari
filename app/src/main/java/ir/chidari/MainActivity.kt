@@ -875,8 +875,13 @@ private fun ChiDariRoot() {
                 storeCategory = vm.loadStore(storeId)?.category.orEmpty()
                 val p = if (productId > 0L) vm.loadProduct(productId) else null
                 existing = p
-                // تصاویر محصول قبلی نباید به این فرم نشت کند
-                vm.startProductImages(p?.images.orEmpty(), p?.imageUri.orEmpty())
+                /*
+                 * این اثر پس از هر بازگشت از صفحه برش دوباره اجرا می‌شود،
+                 * چون ناوبری ترکیب‌بندی این مقصد را از بین می‌برد. کلید فرم
+                 * باعث می‌شود فهرست تصاویر فقط یک بار برای هر محصول ساخته
+                 * شود و تصویر تازه‌برش‌خورده پاک نشود.
+                 */
+                vm.startProductImages("$storeId:$productId", p?.images.orEmpty(), p?.imageUri.orEmpty())
                 loaded = true
             }
 

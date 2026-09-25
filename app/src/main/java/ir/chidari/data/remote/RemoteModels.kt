@@ -83,7 +83,15 @@ object RemoteMappers {
         isSynced = true
     )
 
-    fun productToJson(p: ProductEntity, includeId: Boolean = false): JSONObject =
+    /**
+     * @param multiImage اگر false باشد، ستون `image_urls` فرستاده نمی‌شود —
+     *   برای سرورهایی که هنوز مهاجرت چندعکسی را اجرا نکرده‌اند.
+     */
+    fun productToJson(
+        p: ProductEntity,
+        includeId: Boolean = false,
+        multiImage: Boolean = true
+    ): JSONObject =
         JSONObject().apply {
             if (includeId && p.id > 0) put("id", p.id)
             put("store_id", p.storeId)
@@ -97,7 +105,7 @@ object RemoteMappers {
             put("discount_percent", p.discountPercent)
             put("emoji", p.emoji)
             put("image_url", p.imageUri)
-            put("image_urls", p.images)
+            if (multiImage) put("image_urls", p.images)
             put("barcode", p.barcode)
         }
 

@@ -234,10 +234,24 @@ class RemoteDataSource(private val auth: AuthClient) {
     suspend fun createProduct(product: ProductEntity): Result<ProductEntity> =
         withContext(Dispatchers.IO) {
             val t = token() ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))
-            val payload = RemoteMappers.productToJson(product).toString()
-            val r = call(
-                build("$restUrl/products", "POST", payload, t, prefer = "return=representation")
+
+            var r = call(
+                build(
+                    "$restUrl/products", "POST",
+                    RemoteMappers.productToJson(product).toString(),
+                    t, prefer = "return=representation"
+                )
             )
+            // اگر ستون چندعکسی روی سرور نیست، بدون آن دوباره تلاش می‌کنیم
+            if (missingMultiImageColumn(r)) {
+                r = call(
+                    build(
+                        "$restUrl/products", "POST",
+                        RemoteMappers.productToJson(product, multiImage = false).toString(),
+                        t, prefer = "return=representation"
+                    )
+                )
+            }
             if (!r.ok) return@withContext Result.failure(IOException(errorOf(r)))
             val created = RemoteMappers.parseArray(r.body, RemoteMappers::productFromJson).firstOrNull()
                 ?: return@withContext Result.failure(IOException("پاسخ سرور خالی بود"))
@@ -246,11 +260,31 @@ class RemoteDataSource(private val auth: AuthClient) {
 
     suspend fun updateProduct(product: ProductEntity): Result<Unit> = withContext(Dispatchers.IO) {
         val t = token() ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))
-        val payload = RemoteMappers.productToJson(product).toString()
-        val r = call(build("$restUrl/products?id=eq.${product.id}", "PATCH", payload, t))
+        val url = "$restUrl/products?id=eq.${product.id}"
+
+        var r = call(build(url, "PATCH", RemoteMappers.productToJson(product).toString(), t))
+        if (missingMultiImageColumn(r)) {
+            r = call(
+                build(url, "PATCH", RemoteMappers.productToJson(product, multiImage = false).toString(), t)
+            )
+        }
         if (!r.ok) return@withContext Result.failure(IOException(errorOf(r)))
         Result.success(Unit)
     }
+
+    /**
+     * آیا سرور از ستون `image_urls` خبر ندارد؟
+     *
+     * اگر کاربر هنوز `supabase-multi-images.sql` را اجرا نکرده باشد، PostgREST
+     * خطای «ستون پیدا نشد» برمی‌گرداند و **کل ذخیره‌ی محصول شکست می‌خورد** —
+     * یعنی حتی عکس اصلی هم ثبت نمی‌شود. در آن صورت بدون این ستون دوباره
+     * می‌فرستیم تا دست‌کم عکس اصلی ذخیره شود.
+     */
+    private fun missingMultiImageColumn(r: Res): Boolean =
+        !r.ok && r.body.contains("image_urls", ignoreCase = true) &&
+            (r.body.contains("column", ignoreCase = true) ||
+                r.body.contains("schema cache", ignoreCase = true) ||
+                r.body.contains("PGRST204"))
 
     suspend fun deleteProduct(productId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         val t = token() ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))

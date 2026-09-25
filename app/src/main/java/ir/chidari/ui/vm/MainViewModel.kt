@@ -786,7 +786,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** آماده‌سازی فهرست هنگام باز شدن فرم محصول. */
-    fun startProductImages(stored: String, cover: String) {
+    /**
+     * آماده‌سازی فهرست هنگام باز شدن فرم محصول.
+     *
+     * **باگی که رفع شد:** این تابع از یک `LaunchedEffect` در مقصد «فرم محصول»
+     * صدا زده می‌شود. وقتی به صفحه برش می‌رویم، Navigation Compose ترکیب‌بندی
+     * فرم را **از بین می‌برد**؛ هنگام بازگشت، فرم از نو ترکیب می‌شود و همان
+     * `LaunchedEffect` دوباره اجرا می‌شود. نتیجه این بود که فهرست به تصاویرِ
+     * **ذخیره‌شده‌ی** محصول برمی‌گشت — و برای محصول تازه یعنی فهرست خالی.
+     * تصویری که همین الان برش خورده بود، درست در لحظه‌ی بازگشت ناپدید می‌شد.
+     *
+     * حالا با کلید محصول محافظت می‌شود: تا وقتی روی همان فرم هستیم، فهرست
+     * دوباره مقداردهی نمی‌شود.
+     *
+     * @param key شناسه‌ی یکتای فرم، مثلاً «۱۲:-۱» برای محصول تازه در فروشگاه ۱۲
+     */
+    fun startProductImages(key: String, stored: String, cover: String) {
+        if (imagesFormKey == key) return          // همان فرم، دست نزن
+        imagesFormKey = key
         val urls = ir.chidari.data.local.ProductImages.of(stored, cover)
         _productImages.value = urls.map { url ->
             DraftImage(
@@ -798,10 +815,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** کلید فرمی که فهرست تصاویر برایش ساخته شده. */
+    private var imagesFormKey: String? = null
+
     /** پاک کردن فهرست هنگام بستن فرم (بدون حذف فایل‌های ذخیره‌شده). */
     fun clearProductImages() {
         _productImages.value = emptyList()
         cropReplaceId = 0L
+        imagesFormKey = null
     }
 
     /** مقداری که در ستون `images` محصول ذخیره می‌شود. */

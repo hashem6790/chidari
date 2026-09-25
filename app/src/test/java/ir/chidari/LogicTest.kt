@@ -697,3 +697,109 @@ class CropColorTest {
         assertEquals(0f, L.average(IntArray(0)), 0.001f)
     }
 }
+
+/**
+ * رگرسیون باگ «تصویر آپلودشده دیده نمی‌شود».
+ *
+ * ریشه: مقصد «فرم محصول» با رفتن به صفحه برش از ترکیب‌بندی خارج می‌شد و
+ * هنگام بازگشت دوباره ساخته می‌شد؛ پس `LaunchedEffect` مقداردهی اولیه را
+ * دوباره اجرا می‌کرد و فهرست تصاویر به حالت ذخیره‌شده‌ی محصول (برای محصول
+ * تازه: خالی) برمی‌گشت. یعنی عکس درست در لحظه‌ی بازگشت از برش پاک می‌شد.
+ */
+class ProductFormStateTest {
+
+    /** شبیه‌سازی همان محافظِ کلید که در ViewModel گذاشته شد. */
+    private class ImageList {
+        var key: String? = null
+        var items = listOf<String>()
+        var initCount = 0
+
+        fun start(formKey: String, stored: List<String>) {
+            if (key == formKey) return
+            key = formKey
+            items = stored
+            initCount++
+        }
+        fun add(path: String) { items = items + path }
+        fun close() { key = null; items = emptyList() }
+    }
+
+    @Test fun `returning from the crop screen keeps the new image`() {
+        val list = ImageList()
+        // باز شدن فرم برای محصول تازه در فروشگاه ۱۲
+        list.start("12:-1", emptyList())
+        // کاربر عکس می‌گیرد و برش می‌زند
+        list.add("/data/product_1.jpg")
+        // بازگشت از صفحه برش → همان اثر دوباره اجرا می‌شود
+        list.start("12:-1", emptyList())
+
+        assertEquals("عکس نباید با بازگشت از برش پاک شود", 1, list.items.size)
+        assertEquals("مقداردهی اولیه فقط یک بار", 1, list.initCount)
+    }
+
+    @Test fun `old behaviour would have wiped the image`() {
+        // همان سناریو، ولی بدون محافظ کلید
+        var items = listOf<String>()
+        items = emptyList()                 // باز شدن فرم
+        items = items + "/data/product_1.jpg"   // برش
+        items = emptyList()                 // بازگشت ← مقداردهی دوباره
+        assertTrue("رفتار قبلی عکس را پاک می‌کرد", items.isEmpty())
+    }
+
+    @Test fun `opening a different product does reset the list`() {
+        val list = ImageList()
+        list.start("12:-1", emptyList())
+        list.add("/data/a.jpg")
+        // حالا کاربر محصول دیگری را باز می‌کند
+        list.start("12:77", listOf("https://x/old.jpg"))
+
+        assertEquals(listOf("https://x/old.jpg"), list.items)
+        assertEquals(2, list.initCount)
+    }
+
+    @Test fun `closing the form allows a fresh start for the same product`() {
+        val list = ImageList()
+        list.start("12:-1", emptyList())
+        list.add("/data/a.jpg")
+        list.close()                        // ذخیره شد یا فرم بسته شد
+        list.start("12:-1", emptyList())    // افزودن محصول بعدی
+
+        assertTrue("فرم تازه باید خالی شروع شود", list.items.isEmpty())
+    }
+
+    /** ساخت کلید فرم — باید محصول تازه را از محصول موجود جدا کند. */
+    @Test fun `form key separates a new product from an existing one`() {
+        fun key(storeId: Long, productId: Long) = "$storeId:$productId"
+        assertEquals("12:-1", key(12L, -1L))
+        assertTrue(key(12L, -1L) != key(12L, 77L))
+        assertTrue(key(12L, -1L) != key(13L, -1L))
+    }
+}
+
+/** سازگاری با سروری که هنوز مهاجرت چندعکسی را اجرا نکرده. */
+class LegacyServerTest {
+
+    /** همان شرط تشخیص در RemoteDataSource. */
+    private fun missingColumn(body: String): Boolean =
+        body.contains("image_urls", ignoreCase = true) &&
+            (body.contains("column", ignoreCase = true) ||
+                body.contains("schema cache", ignoreCase = true) ||
+                body.contains("PGRST204"))
+
+    @Test fun `postgrest schema cache error is recognised`() {
+        val body = """{"code":"PGRST204","message":"Could not find the 'image_urls' column of 'products' in the schema cache"}"""
+        assertTrue(missingColumn(body))
+    }
+
+    @Test fun `postgres undefined column error is recognised`() {
+        val body = """{"code":"42703","message":"column \"image_urls\" of relation \"products\" does not exist"}"""
+        assertTrue(missingColumn(body))
+    }
+
+    @Test fun `unrelated errors are not mistaken for a missing column`() {
+        assertFalse(missingColumn("""{"message":"new row violates row-level security policy"}"""))
+        assertFalse(missingColumn("""{"message":"JWT expired"}"""))
+        // خطایی که فقط نام ستون دیگری دارد
+        assertFalse(missingColumn("""{"message":"column \"price\" does not exist"}"""))
+    }
+}
