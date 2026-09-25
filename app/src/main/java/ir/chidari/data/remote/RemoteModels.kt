@@ -75,6 +75,9 @@ object RemoteMappers {
         discountPercent = o.optInt("discount_percent", 0),
         emoji = o.optStringSafe("emoji").ifBlank { "📦" },
         imageUri = o.optStringSafe("image_url"),
+        // ستون چندتایی ممکن است روی سرورهای قدیمی نباشد؛ در آن صورت
+        // همان عکس اصلی به‌عنوان تنها تصویر در نظر گرفته می‌شود.
+        images = o.optStringSafe("image_urls").ifBlank { o.optStringSafe("image_url") },
         barcode = o.optStringSafe("barcode"),
         updatedAt = System.currentTimeMillis(),
         isSynced = true
@@ -94,6 +97,7 @@ object RemoteMappers {
             put("discount_percent", p.discountPercent)
             put("emoji", p.emoji)
             put("image_url", p.imageUri)
+            put("image_urls", p.images)
             put("barcode", p.barcode)
         }
 

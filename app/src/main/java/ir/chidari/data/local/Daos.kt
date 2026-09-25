@@ -180,6 +180,7 @@ interface ProductDao {
                p.price AS price, p.unit AS unit, p.description AS description, p.specs AS specs,
                p.available AS available, p.discountPercent AS discountPercent, p.emoji AS emoji,
                p.imageUri AS imageUri,
+               p.images AS images,
                s.name AS storeName, s.category AS storeCategory, s.province AS province,
                s.city AS city, s.lat AS lat, s.lng AS lng, s.rating AS rating,
                s.phone AS phone, s.address AS address
@@ -211,6 +212,7 @@ interface ProductDao {
                p.price AS price, p.unit AS unit, p.description AS description, p.specs AS specs,
                p.available AS available, p.discountPercent AS discountPercent, p.emoji AS emoji,
                p.imageUri AS imageUri,
+               p.images AS images,
                s.name AS storeName, s.category AS storeCategory, s.province AS province,
                s.city AS city, s.lat AS lat, s.lng AS lng, s.rating AS rating,
                s.phone AS phone, s.address AS address
@@ -282,6 +284,7 @@ interface FavoriteDao {
                p.price AS price, p.unit AS unit, p.description AS description, p.specs AS specs,
                p.available AS available, p.discountPercent AS discountPercent, p.emoji AS emoji,
                p.imageUri AS imageUri,
+               p.images AS images,
                s.name AS storeName, s.category AS storeCategory, s.province AS province,
                s.city AS city, s.lat AS lat, s.lng AS lng, s.rating AS rating,
                s.phone AS phone, s.address AS address

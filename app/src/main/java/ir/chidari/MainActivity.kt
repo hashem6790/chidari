@@ -194,9 +194,12 @@ private fun ChiDariRoot() {
      * `cameraTarget?.let { ... }` هیچ‌وقت اجرا نمی‌شد — یعنی عکس گرفته
      * می‌شد ولی هیچ اتفاقی نمی‌افتاد. rememberSaveable این را رفع می‌کند.
      */
-    var processedImage by rememberSaveable { mutableStateOf("") }
     var showImageSheet by rememberSaveable { mutableStateOf(false) }
     var cameraTargetStr by rememberSaveable { mutableStateOf("") }
+    /** اگر برگه انتخاب برای «جایگزینی» یک تصویر باز شده، شناسه‌اش اینجاست. */
+    var replaceImageId by rememberSaveable { mutableStateOf(0L) }
+    val productImages by vm.productImages.collectAsStateWithLifecycle()
+    val imagesUploading by vm.imagesUploading.collectAsStateWithLifecycle()
     val cameraTarget: android.net.Uri? =
         remember(cameraTargetStr) {
             cameraTargetStr.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse)
@@ -279,8 +282,8 @@ private fun ChiDariRoot() {
     LaunchedEffect(Unit) { vm.checkForUpdate(silent = true) }
 
     /** رفتن به صفحه برش بدون ثبت دوباره‌ی مقصد (اگر از قبل آنجا باشیم). */
-    fun openCropFor(uri: android.net.Uri) {
-        vm.prepareCrop(uri)
+    fun openCropFor(uri: android.net.Uri, replaceId: Long = 0L) {
+        vm.prepareCrop(uri, replaceId)
         if (navController.currentDestination?.route != Routes.CROP) {
             navController.navigate(Routes.CROP) { launchSingleTop = true }
         }
@@ -289,24 +292,31 @@ private fun ChiDariRoot() {
     // انتخاب از گالری — انتخابگر تصویر اندروید ۱۳+ و در غیر این صورت GetContent
     val photoPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { openCropFor(it) } }
+    ) { uri ->
+        val target = replaceImageId; replaceImageId = 0L
+        uri?.let { openCropFor(it, target) }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { openCropFor(it) } }
+    ) { uri ->
+        val target = replaceImageId; replaceImageId = 0L
+        uri?.let { openCropFor(it, target) }
+    }
 
     // گرفتن عکس با دوربین
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
         val target = cameraTarget
+        val replaceTarget = replaceImageId; replaceImageId = 0L
         if (!ok) {
             // کاربر انصراف داد یا دوربین نتوانست ذخیره کند
             if (target != null) vm.showMessage("عکسی گرفته نشد")
         } else if (target == null) {
             vm.showMessage("مسیر عکس دوربین گم شد. دوباره تلاش کنید.")
         } else {
-            openCropFor(target)
+            openCropFor(target, replaceTarget)
         }
     }
 
@@ -329,7 +339,7 @@ private fun ChiDariRoot() {
 
     if (showImageSheet) {
         ImagePickerSheet(
-            hasImage = processedImage.isNotBlank(),
+            hasImage = false,
             onGallery = {
                 // اگر انتخابگر تصویر سیستمی موجود باشد (اندروید ۱۳+ و بسیاری از
                 // گوشی‌های قدیمی‌تر با Google Play)، امن‌تر و بدون نیاز به مجوز است
@@ -354,11 +364,8 @@ private fun ChiDariRoot() {
             onCamera = {
                 cameraPermLauncher.launch(android.Manifest.permission.CAMERA)
             },
-            onRemove = {
-                vm.deleteImageFile(processedImage)
-                processedImage = ""
-            },
-            onDismiss = { showImageSheet = false }
+            onRemove = {},
+            onDismiss = { showImageSheet = false; replaceImageId = 0L }
         )
     }
 
@@ -717,12 +724,41 @@ private fun ChiDariRoot() {
                 // خطا دیگر بی‌صدا نیست: روی همین صفحه نشان داده می‌شود
                 error = (st as? ProductImageState.Failed)?.message,
                 onConfirm = { rect ->
-                    vm.cropAndCompress(rect) { path ->
-                        processedImage = path
-                        navController.popBackStack()
-                    }
+                    vm.cropAndCompress(rect) { navController.popBackStack() }
                 },
                 onBack = { vm.cancelImage(); navController.popBackStack() }
+            )
+        }
+
+        // ----- نمایش تمام‌صفحه تصویر محصول -----
+        composable(
+            Routes.IMAGE_VIEWER,
+            arguments = listOf(navArgument("imageId") { type = NavType.LongType })
+        ) { entry ->
+            val imageId = entry.arguments?.getLong("imageId") ?: 0L
+            val img = productImages.firstOrNull { it.id == imageId }
+            val index = productImages.indexOfFirst { it.id == imageId }
+
+            // اگر تصویر حذف شد (یا فهرست خالی شد) روی صفحه‌ی خالی نمانیم
+            LaunchedEffect(img == null) {
+                if (img == null) navController.popBackStack()
+            }
+
+            ir.chidari.ui.screens.ImageViewerScreen(
+                image = img,
+                index = if (index >= 0) index else 0,
+                total = productImages.size,
+                isCover = index == 0,
+                onRecrop = {
+                    vm.originalUriOf(imageId)?.let { openCropFor(it, imageId) }
+                        ?: vm.showMessage("نسخه اصلی این تصویر در دسترس نیست؛ از «جایگزینی» استفاده کنید")
+                },
+                onReplace = { replaceImageId = imageId; showImageSheet = true },
+                onMakeCover = { vm.makeCoverImage(imageId) },
+                onMove = { delta -> vm.moveProductImage(imageId, delta) },
+                onRetry = { vm.retryImageUpload(imageId) },
+                onDelete = { vm.removeProductImage(imageId) },
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -818,10 +854,11 @@ private fun ChiDariRoot() {
             var loaded by remember { mutableStateOf(false) }
 
             LaunchedEffect(storeId, productId) {
-                // تصویر محصول قبلی نباید به این فرم نشت کند
-                processedImage = ""
                 storeCategory = vm.loadStore(storeId)?.category.orEmpty()
-                if (productId > 0L) existing = vm.loadProduct(productId)
+                val p = if (productId > 0L) vm.loadProduct(productId) else null
+                existing = p
+                // تصاویر محصول قبلی نباید به این فرم نشت کند
+                vm.startProductImages(p?.images.orEmpty(), p?.imageUri.orEmpty())
                 loaded = true
             }
 
@@ -832,9 +869,12 @@ private fun ChiDariRoot() {
                     storeCategory = storeCategory,
                     scannedBarcode = scannedBarcode,
                     onScanBarcode = { navController.navigate(Routes.SCANNER) },
-                    processedImagePath = processedImage,
-                    onPickImage = { showImageSheet = true },
-                    onRemoveImage = { path -> vm.deleteImageFile(path); processedImage = "" },
+                    images = productImages,
+                    uploading = imagesUploading,
+                    onPickImage = { replaceImageId = 0L; showImageSheet = true },
+                    onOpenImage = { navController.navigate(Routes.imageViewer(it.id)) },
+                    onRemoveImage = { vm.removeProductImage(it.id) },
+                    onRetryImage = { vm.retryImageUpload(it.id) },
                     onSave = { product ->
                         vm.saveProduct(product) { navController.popBackStack() }
                     },

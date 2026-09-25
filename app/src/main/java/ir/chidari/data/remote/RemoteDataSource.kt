@@ -319,7 +319,12 @@ class RemoteDataSource(private val auth: AuthClient) {
      *
      * نشانی عمومی فایل برگردانده می‌شود تا در جدول محصولات ذخیره شود.
      */
-    suspend fun uploadProductImage(file: File, userId: String): Result<String> =
+    suspend fun uploadProductImage(
+        file: File,
+        userId: String,
+        /** درصد پیشرفت بین ۰ تا ۱ — برای نوار پیشرفت روی بندانگشتی. */
+        onProgress: (Float) -> Unit = {}
+    ): Result<String> =
         withContext(Dispatchers.IO) {
             if (!isConfigured) return@withContext Result.failure(IllegalStateException(NOT_CONFIGURED))
             if (!file.exists()) return@withContext Result.failure(IOException("فایل تصویر پیدا نشد."))
@@ -328,7 +333,7 @@ class RemoteDataSource(private val auth: AuthClient) {
                 ?: return@withContext Result.failure(IllegalStateException(NEEDS_LOGIN))
 
             val objectPath = "$userId/${System.currentTimeMillis()}_${file.name}"
-            val body = file.asRequestBody("image/jpeg".toMediaType())
+            val body = ProgressRequestBody(file, "image/jpeg".toMediaType(), onProgress)
 
             val req = Request.Builder()
                 .url("$storageUrl/object/$BUCKET/$objectPath")
@@ -395,5 +400,44 @@ class RemoteDataSource(private val auth: AuthClient) {
 
         const val NOT_CONFIGURED = "اتصال به سرور تنظیم نشده است."
         const val NEEDS_LOGIN = "برای این کار باید وارد حساب خود شوید."
+    }
+}
+
+/**
+ * بدنه‌ی درخواست که هنگام ارسال، درصد پیشرفت را گزارش می‌دهد.
+ *
+ * OkHttp به‌طور پیش‌فرض چنین چیزی ندارد؛ فایل را بایت‌به‌بایت (در بسته‌های
+ * ۸ کیلوبایتی) می‌نویسیم و بعد از هر بسته درصد را اعلام می‌کنیم. بدون این،
+ * نوار پیشرفت روی تصویر فقط یک انیمیشن تزئینی می‌بود.
+ */
+private class ProgressRequestBody(
+    private val file: File,
+    private val type: okhttp3.MediaType,
+    private val onProgress: (Float) -> Unit
+) : okhttp3.RequestBody() {
+
+    override fun contentType(): okhttp3.MediaType = type
+    override fun contentLength(): Long = file.length()
+
+    override fun writeTo(sink: okio.BufferedSink) {
+        val total = file.length().coerceAtLeast(1)
+        var written = 0L
+        var lastReported = -1
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                sink.write(buffer, 0, read)
+                written += read
+                // فقط وقتی درصد صحیح عوض شد گزارش می‌دهیم تا رابط کاربری
+                // با صدها به‌روزرسانی در ثانیه بمباران نشود
+                val percent = (written * 100 / total).toInt()
+                if (percent != lastReported) {
+                    lastReported = percent
+                    onProgress(percent / 100f)
+                }
+            }
+        }
     }
 }

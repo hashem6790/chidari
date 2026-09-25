@@ -44,6 +44,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -143,18 +145,58 @@ fun ProductDetailScreen(
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // تصویر محصول اگر آپلود شده باشد، وگرنه ایموجی
-                    if (p.imageUri.isNotBlank() && Fa.loadImages) {
-                        coil.compose.AsyncImage(
-                            model = if (p.imageUri.startsWith("http")) p.imageUri
-                                    else java.io.File(p.imageUri),
-                            contentDescription = p.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                        )
+                    // گالری تصاویر محصول؛ اگر تصویری نبود، ایموجی
+                    val gallery = remember(p.images, p.imageUri) {
+                        ir.chidari.data.local.ProductImages.of(p.images, p.imageUri)
+                    }
+                    if (gallery.isNotEmpty() && Fa.loadImages) {
+                        if (gallery.size == 1) {
+                            coil.compose.AsyncImage(
+                                model = if (gallery[0].startsWith("http")) gallery[0]
+                                        else java.io.File(gallery[0]),
+                                contentDescription = p.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(220.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                            )
+                        } else {
+                            // چند تصویر: کشیدن افقی، با شماره‌ی تصویر
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(gallery) { i, url ->
+                                    Box {
+                                        coil.compose.AsyncImage(
+                                            model = if (url.startsWith("http")) url
+                                                    else java.io.File(url),
+                                            contentDescription = p.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .width(260.dp)
+                                                .height(220.dp)
+                                                .clip(RoundedCornerShape(16.dp))
+                                        )
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(8.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xA6000000))
+                                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                "${Fa.number((i + 1).toLong())}/${Fa.number(gallery.size.toLong())}",
+                                                color = Color.White,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         Text(p.emoji, fontSize = 64.sp)
                     }

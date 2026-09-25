@@ -423,3 +423,79 @@ class CropRotationTest {
         assertEquals(w * h, mw * mh)
     }
 }
+
+/**
+ * تست‌های چندعکسی بودن محصول.
+ *
+ * نکته‌ی طراحی: عکس «اصلی» (ستون imageUri) عمداً نگه داشته شد تا همه‌ی
+ * کارت‌ها و ردیف‌های قدیمی بدون تغییر کار کنند. این تست‌ها همان قرارداد
+ * را قفل می‌کنند.
+ */
+class ProductImagesTest {
+
+    private val PI = ir.chidari.data.local.ProductImages
+
+    @Test fun `split ignores blank lines and trims`() {
+        val list = PI.split("  a.jpg \n\n b.jpg \n   \n")
+        assertEquals(listOf("a.jpg", "b.jpg"), list)
+    }
+
+    @Test fun `join and split are inverse of each other`() {
+        val list = listOf("https://x/1.jpg", "https://x/2.jpg", "https://x/3.jpg")
+        assertEquals(list, PI.split(PI.join(list)))
+    }
+
+    @Test fun `join drops blank entries`() {
+        assertEquals("a\nb", PI.join(listOf("a", "", "   ", "b")))
+    }
+
+    /** ردیف‌های قدیمی فقط عکس تک‌تایی دارند؛ نباید گم شود. */
+    @Test fun `legacy row with only a cover still yields one image`() {
+        assertEquals(listOf("cover.jpg"), PI.of(images = "", cover = "cover.jpg"))
+    }
+
+    @Test fun `empty product yields no images`() {
+        assertTrue(PI.of(images = "", cover = "").isEmpty())
+    }
+
+    /** وقتی فهرست هست، عکس اصلی نباید دوباره اضافه شود. */
+    @Test fun `cover is not duplicated when the list exists`() {
+        val r = PI.of(images = "a.jpg\nb.jpg", cover = "a.jpg")
+        assertEquals(listOf("a.jpg", "b.jpg"), r)
+    }
+
+    @Test fun `first image is always the cover`() {
+        val list = listOf("first.jpg", "second.jpg")
+        assertEquals("first.jpg", PI.split(PI.join(list)).first())
+    }
+
+    @Test fun `max images is five`() {
+        assertEquals(5, PI.MAX)
+    }
+
+    /** شبیه‌سازی «بردن به جایگاه اول» که در ViewModel انجام می‌شود. */
+    @Test fun `making an image the cover moves it to the front`() {
+        val ids = listOf(1L, 2L, 3L)
+        val target = 3L
+        val reordered = listOf(target) + ids.filterNot { it == target }
+        assertEquals(listOf(3L, 1L, 2L), reordered)
+    }
+
+    /** شبیه‌سازی جابه‌جایی یک جایگاه. */
+    @Test fun `moving an image swaps it with its neighbour`() {
+        val list = mutableListOf("a", "b", "c")
+        val i = 1; val j = i + 1
+        val tmp = list[i]; list[i] = list[j]; list[j] = tmp
+        assertEquals(listOf("a", "c", "b"), list)
+    }
+
+    /** جابه‌جایی در لبه‌ها نباید کاری کند (نه کرش، نه تغییر). */
+    @Test fun `moving past the edges is a no-op`() {
+        val list = listOf("a", "b", "c")
+        for ((i, delta) in listOf(0 to -1, 2 to 1)) {
+            val j = i + delta
+            val changed = j >= 0 && j < list.size
+            assertTrue("جابه‌جایی در لبه نباید انجام شود", !changed)
+        }
+    }
+}

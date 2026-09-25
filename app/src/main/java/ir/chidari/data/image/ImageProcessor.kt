@@ -381,6 +381,24 @@ class ImageProcessor(private val context: Context) {
             out.toByteArray()
         }
 
+    /**
+     * یک نسخه‌ی دست‌نخورده از تصویر انتخاب‌شده را داخل برنامه کپی می‌کند.
+     *
+     * چرا لازم است: نشانی‌هایی که گالری برمی‌گرداند (`content://…`) موقتی‌اند و
+     * اجازه‌ی خواندنشان با بسته شدن برنامه از بین می‌رود. بدون این کپی،
+     * «برش دوباره» بعد از بستن و باز کردن برنامه کار نمی‌کرد. بایت‌ها بدون
+     * رمزگشایی کپی می‌شوند، پس نه کیفیت کم می‌شود نه حافظه مصرف.
+     */
+    suspend fun copyOriginal(source: Uri): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val out = File(imageDir(), "orig_${System.currentTimeMillis()}.img")
+            context.contentResolver.openInputStream(source)?.use { input ->
+                FileOutputStream(out).use { output -> input.copyTo(output) }
+            } ?: return@runCatching null
+            if (out.length() > 0) out else null
+        }.getOrNull()
+    }
+
     /** پوشه نگهداری تصاویر محصولات. */
     fun imageDir(): File =
         File(context.filesDir, "product_images").apply { if (!exists()) mkdirs() }

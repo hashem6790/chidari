@@ -13,9 +13,11 @@ object Routes {
     const val AUTH = "auth"
     const val SCANNER = "scanner"
     const val CROP = "crop"
+    const val IMAGE_VIEWER = "image_viewer/{imageId}"
     const val STORE_EDITOR = "store_editor?storeId={storeId}"
     const val PRODUCT_EDITOR = "product_editor?storeId={storeId}&productId={productId}"
 
+    fun imageViewer(imageId: Long) = "image_viewer/$imageId"
     fun store(id: Long) = "store/$id"
     fun product(id: Long) = "product/$id"
     fun compare(title: String) = "compare/${Uri.encode(title)}"

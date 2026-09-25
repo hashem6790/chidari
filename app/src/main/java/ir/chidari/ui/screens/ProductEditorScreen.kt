@@ -69,10 +69,14 @@ fun ProductEditorScreen(
     /** بارکدی که از صفحه اسکن برگشته (خالی یعنی اسکنی انجام نشده). */
     scannedBarcode: String = "",
     onScanBarcode: () -> Unit,
-    /** مسیر تصویری که از صفحه برش برگشته (خالی = تغییری نکرده). */
-    processedImagePath: String = "",
+    /** فهرست زنده‌ی تصاویر محصول (با وضعیت بارگذاری هرکدام). */
+    images: List<ir.chidari.ui.vm.DraftImage> = emptyList(),
     onPickImage: () -> Unit,
-    onRemoveImage: (String) -> Unit,
+    onOpenImage: (ir.chidari.ui.vm.DraftImage) -> Unit,
+    onRemoveImage: (ir.chidari.ui.vm.DraftImage) -> Unit,
+    onRetryImage: (ir.chidari.ui.vm.DraftImage) -> Unit,
+    /** آیا هنوز تصویری در حال بارگذاری است؟ */
+    uploading: Boolean = false,
     onSave: (ProductEntity) -> Unit,
     onBack: () -> Unit
 ) {
@@ -89,12 +93,6 @@ fun ProductEditorScreen(
     var discountText by remember { mutableStateOf(existing?.discountPercent?.takeIf { it > 0 }?.toString() ?: "") }
     var emoji by remember { mutableStateOf(existing?.emoji ?: "📦") }
     var barcode by remember { mutableStateOf(existing?.barcode ?: "") }
-    var imagePath by remember { mutableStateOf(existing?.imageUri ?: "") }
-
-    // تصویر تازه‌ی آماده‌شده از صفحه برش
-    LaunchedEffect(processedImagePath) {
-        if (processedImagePath.isNotBlank()) imagePath = processedImagePath
-    }
 
     // وقتی از صفحه اسکن برمی‌گردیم، کد را در فرم می‌گذاریم
     LaunchedEffect(scannedBarcode) {
@@ -147,66 +145,14 @@ fun ProductEditorScreen(
             }
 
             item {
-                // ---------- تصویر محصول ----------
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    onClick = onPickImage
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        if (imagePath.isNotBlank()) {
-                            AsyncImage(
-                                model = java.io.File(imagePath),
-                                contentDescription = "تصویر محصول",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(190.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = onPickImage,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) { Text("تغییر تصویر") }
-                                OutlinedButton(
-                                    onClick = {
-                                        onRemoveImage(imagePath)
-                                        imagePath = ""
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) { Text("حذف") }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(140.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text("📷", fontSize = 40.sp)
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "افزودن تصویر محصول",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "گالری یا دوربین • برش و بهینه‌سازی خودکار",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
+                // ---------- تصاویر محصول ----------
+                ir.chidari.ui.components.ProductImagesSection(
+                    images = images,
+                    onAdd = onPickImage,
+                    onOpen = onOpenImage,
+                    onRemove = onRemoveImage,
+                    onRetry = onRetryImage
+                )
             }
 
             item {
@@ -394,18 +340,26 @@ fun ProductEditorScreen(
                                 discountPercent = discount,
                                 emoji = emoji,
                                 barcode = barcode.trim(),
-                                imageUri = imagePath,
+                                // تصاویر در ViewModel نگه‌داری می‌شوند و هنگام
+                                // ذخیره روی محصول نشانده می‌شوند
                                 updatedAt = System.currentTimeMillis()
                             )
                         )
                     },
+                    // تا پایان بارگذاری تصاویر، ذخیره بسته است تا محصول با
+                    // مسیر محلی (که برای بقیه بی‌معناست) روی سرور ننشیند
+                    enabled = !uploading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text(
-                        if (existing == null) "افزودن به فروشگاه" else "ذخیره تغییرات",
+                        when {
+                            uploading -> "در حال بارگذاری تصاویر…"
+                            existing == null -> "افزودن به فروشگاه"
+                            else -> "ذخیره تغییرات"
+                        },
                         style = MaterialTheme.typography.titleSmall
                     )
                 }

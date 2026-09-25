@@ -525,12 +525,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveProduct(product: ProductEntity, onSaved: () -> Unit = {}) {
         viewModelScope.launch {
             _saving.value = true
-            val hasNewImage = product.imageUri.isNotBlank() && !product.imageUri.startsWith("http")
-            if (hasNewImage) showMessage("در حال بارگذاری تصویر…")
+            // تصاویر از فهرست زنده‌ی فرم گرفته می‌شوند؛ آن‌هایی که قبلاً
+            // در پس‌زمینه بارگذاری شده‌اند دوباره ارسال نمی‌شوند.
+            val withImages = product.copy(
+                imageUri = productCoverValue(),
+                images = productImagesValue()
+            )
+            val pending = ir.chidari.data.local.ProductImages.split(withImages.images)
+                .count { !it.startsWith("http") }
+            if (pending > 0) showMessage("در حال بارگذاری ${Fa.number(pending.toLong())} تصویر…")
 
-            sync.pushProduct(product, _userId.value)
+            sync.pushProduct(withImages, _userId.value)
                 .onSuccess {
                     showMessage(if (product.id == 0L) "محصول اضافه شد" else "محصول به‌روزرسانی شد")
+                    clearProductImages()
                     onSaved()
                 }
                 .onFailure { showMessage(it.message ?: "ذخیره محصول ناموفق بود") }
@@ -707,8 +715,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * پس اگر داخل کوروتین ست می‌شد، در لحظه‌ی `navigate` هنوز `Idle` بود و
      * صفحه برش نمی‌توانست بین «در حال بارگذاری» و «حالت کهنه» فرق بگذارد.
      */
-    fun prepareCrop(uri: android.net.Uri) {
+    fun prepareCrop(uri: android.net.Uri, replaceId: Long = 0L) {
         _imageState.value = ProductImageState.Loading
+        cropReplaceId = replaceId
         viewModelScope.launch {
             when (val r = images.loadForCrop(uri)) {
                 is ir.chidari.data.image.ImageLoad.Failure ->
@@ -730,12 +739,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun displaySize(uri: android.net.Uri): Pair<Int, Int> =
         images.displaySize(uri) ?: (1 to 1)
 
-    /** برش و فشرده‌سازی نهایی؛ مسیر فایل آماده برمی‌گردد. */
-    fun cropAndCompress(rect: android.graphics.Rect, onDone: (String) -> Unit) {
+    /**
+     * برش و فشرده‌سازی نهایی، سپس افزودن به فهرست تصاویر محصول و شروع
+     * فوری بارگذاری در پس‌زمینه (رفتار دیوار: کاربر منتظر نمی‌ماند).
+     */
+    fun cropAndCompress(rect: android.graphics.Rect, onDone: () -> Unit) {
         val st = _imageState.value
         if (st !is ProductImageState.Cropping) return
+        val replaceId = cropReplaceId
         viewModelScope.launch {
             _imageState.value = ProductImageState.Processing
+
+            // نسخه‌ی اصلی را نگه می‌داریم تا «برش دوباره» همیشه ممکن باشد.
+            // اگر همین تصویر قبلاً نسخه اصلی داشت، دوباره کپی نمی‌کنیم.
+            val existing = _productImages.value.firstOrNull { it.id == replaceId }
+            val originalPath = existing?.originalPath?.takeIf { java.io.File(it).exists() }
+                ?: images.copyOriginal(st.source)?.absolutePath.orEmpty()
+
             when (val r = images.process(st.source, rect)) {
                 is ImageResult.Success -> {
                     _imageState.value = ProductImageState.Idle
@@ -743,11 +763,158 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         "تصویر آماده شد: ${Fa.number(r.width.toLong())}×${Fa.number(r.height.toLong())} " +
                             "• ${Fa.digits(r.sizeLabel)}"
                     )
-                    onDone(r.file.absolutePath)
+                    putCroppedImage(replaceId, r.file.absolutePath, originalPath)
+                    onDone()
                 }
                 is ImageResult.Error -> _imageState.value = ProductImageState.Failed(r.message)
             }
         }
+    }
+
+    // ---------- فهرست تصاویر محصول در حال ویرایش ----------
+
+    private val _productImages = MutableStateFlow<List<DraftImage>>(emptyList())
+    val productImages: StateFlow<List<DraftImage>> = _productImages.asStateFlow()
+
+    /** اگر برش برای جایگزینی یک تصویر موجود باشد، شناسه‌اش اینجاست. */
+    private var cropReplaceId: Long = 0L
+    private var nextDraftId: Long = 1L
+
+    /** آیا هنوز تصویری در حال بارگذاری است؟ (برای غیرفعال کردن دکمه ذخیره) */
+    val imagesUploading: StateFlow<Boolean> = _productImages
+        .map { list -> list.any { it.state == UploadState.UPLOADING } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** آماده‌سازی فهرست هنگام باز شدن فرم محصول. */
+    fun startProductImages(stored: String, cover: String) {
+        val urls = ir.chidari.data.local.ProductImages.of(stored, cover)
+        _productImages.value = urls.map { url ->
+            DraftImage(
+                id = nextDraftId++,
+                localPath = if (url.startsWith("http")) "" else url,
+                remoteUrl = if (url.startsWith("http")) url else "",
+                state = if (url.startsWith("http")) UploadState.DONE else UploadState.LOCAL_ONLY
+            )
+        }
+    }
+
+    /** پاک کردن فهرست هنگام بستن فرم (بدون حذف فایل‌های ذخیره‌شده). */
+    fun clearProductImages() {
+        _productImages.value = emptyList()
+        cropReplaceId = 0L
+    }
+
+    /** مقداری که در ستون `images` محصول ذخیره می‌شود. */
+    fun productImagesValue(): String =
+        ir.chidari.data.local.ProductImages.join(_productImages.value.map { it.storedValue })
+
+    /** عکس اصلی = اولین تصویر. */
+    fun productCoverValue(): String = _productImages.value.firstOrNull()?.storedValue.orEmpty()
+
+    /** افزودن تصویر تازه یا جایگزینی تصویر موجود، سپس شروع بارگذاری. */
+    private fun putCroppedImage(replaceId: Long, path: String, originalPath: String) {
+        val current = _productImages.value
+        val old = current.firstOrNull { it.id == replaceId }
+
+        val draft = DraftImage(
+            id = if (old != null) old.id else nextDraftId++,
+            localPath = path,
+            originalPath = originalPath,
+            state = UploadState.UPLOADING
+        )
+
+        if (old != null) {
+            // فایل‌های قدیمی همین جایگاه پاک می‌شوند تا فضا هدر نرود
+            if (old.localPath.isNotBlank() && old.localPath != path) images.delete(old.localPath)
+            if (old.originalPath.isNotBlank() && old.originalPath != originalPath) {
+                images.delete(old.originalPath)
+            }
+            if (old.remoteUrl.isNotBlank()) deleteRemoteImage(old.remoteUrl)
+            _productImages.value = current.map { if (it.id == old.id) draft else it }
+        } else {
+            if (current.size >= ir.chidari.data.local.ProductImages.MAX) {
+                showMessage("حداکثر ${Fa.number(ir.chidari.data.local.ProductImages.MAX.toLong())} تصویر مجاز است")
+                images.delete(path)
+                images.delete(originalPath)
+                return
+            }
+            _productImages.value = current + draft
+        }
+        uploadDraft(draft.id)
+    }
+
+    /** بارگذاری یک تصویر در پس‌زمینه با گزارش پیشرفت. */
+    private fun uploadDraft(id: Long) {
+        val draft = _productImages.value.firstOrNull { it.id == id } ?: return
+        val uid = _userId.value
+
+        if (!sync.isRemoteConfigured || uid.isBlank()) {
+            // حالت آفلاین یا مهمان: تصویر روی گوشی می‌ماند و هنگام ذخیره ارسال می‌شود
+            updateDraft(id) { it.copy(state = UploadState.LOCAL_ONLY, progress = 1f) }
+            return
+        }
+
+        viewModelScope.launch {
+            updateDraft(id) { it.copy(state = UploadState.UPLOADING, progress = 0f, error = "") }
+            val file = java.io.File(draft.localPath)
+            sync.uploadImage(file, uid) { p ->
+                updateDraft(id) { it.copy(progress = p) }
+            }.onSuccess { url ->
+                updateDraft(id) { it.copy(remoteUrl = url, state = UploadState.DONE, progress = 1f) }
+            }.onFailure { e ->
+                updateDraft(id) {
+                    it.copy(state = UploadState.FAILED, error = e.message ?: "بارگذاری ناموفق بود")
+                }
+            }
+        }
+    }
+
+    /** تلاش دوباره برای تصویری که بارگذاری‌اش شکست خورده. */
+    fun retryImageUpload(id: Long) = uploadDraft(id)
+
+    private fun updateDraft(id: Long, transform: (DraftImage) -> DraftImage) {
+        _productImages.value = _productImages.value.map { if (it.id == id) transform(it) else it }
+    }
+
+    /** حذف یک تصویر: از فهرست، از گوشی و از سرور. */
+    fun removeProductImage(id: Long) {
+        val draft = _productImages.value.firstOrNull { it.id == id } ?: return
+        _productImages.value = _productImages.value.filterNot { it.id == id }
+        if (draft.localPath.isNotBlank()) images.delete(draft.localPath)
+        if (draft.originalPath.isNotBlank()) images.delete(draft.originalPath)
+        if (draft.remoteUrl.isNotBlank()) deleteRemoteImage(draft.remoteUrl)
+        showMessage("تصویر حذف شد")
+    }
+
+    private fun deleteRemoteImage(url: String) {
+        viewModelScope.launch { sync.deleteImage(url) }
+    }
+
+    /** جابه‌جایی تصویر یک جایگاه به چپ یا راست. */
+    fun moveProductImage(id: Long, delta: Int) {
+        val list = _productImages.value.toMutableList()
+        val i = list.indexOfFirst { it.id == id }
+        val j = i + delta
+        if (i < 0 || j < 0 || j >= list.size) return
+        val tmp = list[i]; list[i] = list[j]; list[j] = tmp
+        _productImages.value = list
+    }
+
+    /** بردن یک تصویر به جایگاه اول (عکس اصلی). */
+    fun makeCoverImage(id: Long) {
+        val list = _productImages.value
+        val item = list.firstOrNull { it.id == id } ?: return
+        if (list.firstOrNull()?.id == id) return
+        _productImages.value = listOf(item) + list.filterNot { it.id == id }
+        showMessage("به‌عنوان عکس اصلی تنظیم شد")
+    }
+
+    /** نشانی فایل اصلی برای «برش دوباره». */
+    fun originalUriOf(id: Long): android.net.Uri? {
+        val d = _productImages.value.firstOrNull { it.id == id } ?: return null
+        val f = java.io.File(d.originalPath)
+        if (!f.exists()) return null
+        return android.net.Uri.fromFile(f)
     }
 
     fun cancelImage() { _imageState.value = ProductImageState.Idle }

@@ -64,7 +64,20 @@ data class ProductEntity(
     val available: Boolean = true,
     val discountPercent: Int = 0,
     val emoji: String = "📦",
+    /**
+     * تصویر «اصلی» محصول (همان عکس اول فهرست `images`).
+     *
+     * عمداً نگه داشته شده: همه‌ی کارت‌ها و فهرست‌ها از همین می‌خوانند، پس با
+     * افزوده شدن چندعکسی هیچ‌کدام نیاز به تغییر ندارند و ردیف‌های قدیمی سرور
+     * هم بدون مهاجرت کار می‌کنند.
+     */
     val imageUri: String = "",
+    /**
+     * همه‌ی تصاویر محصول، هر کدام در یک خط. عکس اول = عکس اصلی.
+     * برای حداکثر ۵ تصویر، یک ستون متنی از یک جدول جداگانه ساده‌تر و
+     * کم‌ریسک‌تر است (بدون join، بدون سیاست RLS اضافه).
+     */
+    @ColumnInfo(defaultValue = "") val images: String = "",
     /** بارکد کالا (EAN/UPC) — برای افزودن سریع و جست‌وجوی دقیق. */
     @ColumnInfo(defaultValue = "") val barcode: String = "",
     val updatedAt: Long = System.currentTimeMillis(),
@@ -105,6 +118,7 @@ data class ProductWithStore(
     val discountPercent: Int,
     val emoji: String,
     val imageUri: String,
+    val images: String,
     val storeName: String,
     val storeCategory: String,
     val province: String,
@@ -136,3 +150,28 @@ data class StoreWithStats(
     val productCount: Int,
     val minPrice: Long?
 )
+
+/** کمک‌تابع‌های تبدیل فهرست تصاویر به/از ستون متنی. */
+object ProductImages {
+
+    /** بیشترین تعداد تصویر مجاز برای هر محصول. */
+    const val MAX = 5
+
+    /** رشته‌ی ذخیره‌شده → فهرست نشانی‌ها. خطوط خالی نادیده گرفته می‌شوند. */
+    fun split(value: String): List<String> =
+        value.split('\n').map { it.trim() }.filter { it.isNotBlank() }
+
+    /** فهرست → رشته‌ی ذخیره‌شده. */
+    fun join(list: List<String>): String = list.filter { it.isNotBlank() }.joinToString("\n")
+
+    /**
+     * فهرست تصاویر یک محصول با در نظر گرفتن ردیف‌های قدیمی.
+     * اگر ستون چندتایی خالی باشد ولی عکس اصلی وجود داشته باشد، همان یکی برمی‌گردد.
+     */
+    fun of(images: String, cover: String): List<String> {
+        val list = split(images)
+        return if (list.isNotEmpty()) list
+        else if (cover.isNotBlank()) listOf(cover)
+        else emptyList()
+    }
+}

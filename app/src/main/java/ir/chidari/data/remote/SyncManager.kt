@@ -227,17 +227,42 @@ class SyncManager(
      * مسیر محلی (مثل /data/.../product_123.jpg) برای کاربران دیگر بی‌معناست؛
      * باید به نشانی عمومی سرور تبدیل شود تا همه ببینند.
      */
+    /** آیا اتصال به سرور تنظیم شده است؟ (برای تصمیم آپلود فوری) */
+    val isRemoteConfigured: Boolean get() = remote.isConfigured
+
+    /** بارگذاری مستقیم یک تصویر با گزارش پیشرفت (آپلود فوری در فرم محصول). */
+    suspend fun uploadImage(
+        file: java.io.File,
+        userId: String,
+        onProgress: (Float) -> Unit
+    ): Result<String> = remote.uploadProductImage(file, userId, onProgress)
+
+    /** حذف تصویر از فضای ذخیره سرور. */
+    suspend fun deleteImage(url: String): Result<Unit> = remote.deleteProductImage(url)
+
     private suspend fun uploadImageIfLocal(product: ProductEntity, userId: String): ProductEntity {
-        val path = product.imageUri
-        if (path.isBlank() || path.startsWith("http")) return product   // از قبل روی سرور است
+        val paths = ir.chidari.data.local.ProductImages.of(product.images, product.imageUri)
+        if (paths.isEmpty()) return product.copy(imageUri = "", images = "")
+
+        // اگر همه از قبل روی سرورند، کاری لازم نیست
+        if (paths.all { it.startsWith("http") }) {
+            return product.copy(imageUri = paths.first(), images = ir.chidari.data.local.ProductImages.join(paths))
+        }
         if (!remote.isConfigured || userId.isBlank()) return product     // حالت آفلاین
 
-        val f = java.io.File(path)
-        if (!f.exists()) return product.copy(imageUri = "")
+        val uploaded = mutableListOf<String>()
+        for (path in paths) {
+            if (path.startsWith("http")) { uploaded += path; continue }
+            val f = java.io.File(path)
+            if (!f.exists()) continue                                    // فایل پاک شده، رد می‌شود
+            val url = remote.uploadProductImage(f, userId).getOrElse { throw it }
+            uploaded += url
+        }
 
-        return remote.uploadProductImage(f, userId)
-            .map { url -> product.copy(imageUri = url) }
-            .getOrElse { throw it }                                      // خطا به لایه بالا برود
+        return product.copy(
+            imageUri = uploaded.firstOrNull().orEmpty(),
+            images = ir.chidari.data.local.ProductImages.join(uploaded)
+        )
     }
 
     suspend fun pushProduct(product: ProductEntity, userId: String = ""): Result<ProductEntity> {
