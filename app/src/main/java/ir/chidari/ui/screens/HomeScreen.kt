@@ -68,6 +68,8 @@ fun HomeScreen(
     onOpenLocation: () -> Unit,
     onUseGps: () -> Unit,
     onOpenFilters: () -> Unit,
+    /** تعداد فیلترهای فعال — روی آیکن نشان داده می‌شود. */
+    activeFilterCount: Int = 0,
     onStoreClick: (Long) -> Unit,
     onToggleFavorite: (String) -> Unit,
     syncStatus: SyncStatus = SyncStatus.Idle,
@@ -144,8 +146,16 @@ fun HomeScreen(
                     placeholder = { Text("جست‌وجوی فروشگاه، خدمات یا محصول…") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     trailingIcon = {
-                        IconButton(onClick = onOpenFilters) {
-                            Icon(Icons.Filled.FilterList, contentDescription = "فیلترها")
+                        ir.chidari.ui.components.FilterBadge(activeFilterCount) {
+                            IconButton(onClick = onOpenFilters) {
+                                Icon(
+                                    Icons.Filled.FilterList,
+                                    contentDescription = "فیلترها",
+                                    tint = if (activeFilterCount > 0)
+                                        MaterialTheme.colorScheme.primary
+                                    else androidx.compose.ui.graphics.Color.Unspecified
+                                )
+                            }
                         }
                     },
                     singleLine = true,

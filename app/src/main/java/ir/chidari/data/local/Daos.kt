@@ -100,6 +100,13 @@ interface StoreDao {
         limit: Int = 300
     ): Flow<List<StoreEntity>>
 
+    /**
+     * تعداد محصولات همه‌ی فروشگاه‌ها در یک کوئری.
+     * جایگزین صدا زدن شمارش برای هر فروشگاه (N کوئری به‌جای ۱).
+     */
+    @Query("SELECT storeId AS storeId, COUNT(*) AS count FROM products GROUP BY storeId")
+    fun observeCountsByStore(): Flow<List<StoreProductCount>>
+
     @Query("SELECT COUNT(*) FROM products WHERE storeId = :storeId")
     suspend fun productCount(storeId: Long): Int
 

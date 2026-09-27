@@ -175,3 +175,6 @@ object ProductImages {
         else emptyList()
     }
 }
+
+/** تعداد محصولات یک فروشگاه — خروجی کوئری گروهی. */
+data class StoreProductCount(val storeId: Long, val count: Int)

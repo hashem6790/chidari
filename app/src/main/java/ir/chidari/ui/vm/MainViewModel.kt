@@ -57,8 +57,40 @@ data class FilterState(
     val sort: SortMode = SortMode.NEAREST,
     val onlyAvailable: Boolean = false,
     val maxDistanceKm: Float = 0f,     // ۰ یعنی بدون محدودیت
-    val ignoreCityFilter: Boolean = false // «همه ایران» موقت
-)
+    val ignoreCityFilter: Boolean = false, // «همه ایران» موقت
+    /** کف قیمت به تومان؛ ۰ یعنی بدون کف. */
+    val minPrice: Long = 0L,
+    /** سقف قیمت به تومان؛ ۰ یعنی بدون سقف. */
+    val maxPrice: Long = 0L,
+    val onlyDiscounted: Boolean = false,
+    val onlyWithImage: Boolean = false,
+    /** حداقل امتیاز فروشگاه؛ ۰ یعنی بی‌اهمیت. */
+    val minRating: Float = 0f,
+    /** فروشگاه‌های بدون محصول نشان داده نشوند. */
+    val onlyWithProducts: Boolean = false
+) {
+    /**
+     * چند فیلتر دست‌کاری شده‌اند.
+     *
+     * روی آیکن فیلتر نشان داده می‌شود. مشکل رایج این است که کاربر فیلتری
+     * می‌گذارد، فراموش می‌کند، بعد فکر می‌کند برنامه نتیجه‌ای ندارد.
+     * مرتب‌سازی و متن جست‌وجو شمرده نمی‌شوند چون «فیلتر» حساب نمی‌شوند.
+     */
+    val activeCount: Int
+        get() = listOf(
+            storeCategory.isNotBlank(),
+            productCategory.isNotBlank(),
+            onlyAvailable,
+            maxDistanceKm > 0f,
+            ignoreCityFilter,
+            minPrice > 0L,
+            maxPrice > 0L,
+            onlyDiscounted,
+            onlyWithImage,
+            minRating > 0f,
+            onlyWithProducts
+        ).count { it }
+}
 
 /** پیام‌های گذرا برای نمایش در Snackbar. */
 data class UiMessage(val text: String, val id: Long = System.currentTimeMillis())
@@ -280,6 +312,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- فهرست فروشگاه‌ها ----------
 
+    /** تعداد محصول هر فروشگاه — برای فیلتر «فقط دارای محصول». */
+    private val productCounts: StateFlow<Map<Long, Int>> = repo.observeProductCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     val stores: StateFlow<List<StoreWithDistance>> =
         combine(location, debouncedFilters) { loc, f -> loc to f }
             .flatMapLatest { (loc, f) ->
@@ -293,6 +329,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 (it.distanceKm ?: Double.MAX_VALUE) <= f.maxDistanceKm
                             }
                         }
+                        withDistance = ir.chidari.data.repo.AdvancedFilters.filterStores(
+                            items = withDistance,
+                            minRating = f.minRating,
+                            onlyWithProducts = f.onlyWithProducts,
+                            productCountOf = { id -> productCounts.value[id] ?: 0 }
+                        )
                         repo.sortStores(withDistance, f.sort)
                     }
             }
@@ -318,6 +360,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 (it.distanceKm ?: Double.MAX_VALUE) <= f.maxDistanceKm
                             }
                         }
+                        offers = ir.chidari.data.repo.AdvancedFilters.filterOffers(
+                            items = offers,
+                            minPrice = f.minPrice,
+                            maxPrice = f.maxPrice,
+                            onlyDiscounted = f.onlyDiscounted,
+                            onlyWithImage = f.onlyWithImage,
+                            minRating = f.minRating
+                        )
                         repo.sortOffers(offers, f.sort)
                     }
             }
@@ -374,6 +424,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setSort(s: SortMode) { _filters.value = _filters.value.copy(sort = s) }
     fun setOnlyAvailable(v: Boolean) { _filters.value = _filters.value.copy(onlyAvailable = v) }
     fun setMaxDistance(km: Float) { _filters.value = _filters.value.copy(maxDistanceKm = km) }
+
+    // ---------- فیلترهای پیشرفته ----------
+
+    fun setPriceRange(min: Long, max: Long) {
+        // اگر کاربر جای کف و سقف را عوض کرد، خودمان مرتبشان می‌کنیم
+        val lo = minOf(min, if (max > 0L) max else Long.MAX_VALUE).coerceAtLeast(0L)
+        val hi = if (max > 0L) maxOf(min, max) else 0L
+        _filters.value = _filters.value.copy(minPrice = if (lo == Long.MAX_VALUE) 0L else lo, maxPrice = hi)
+    }
+
+    fun setOnlyDiscounted(v: Boolean) { _filters.value = _filters.value.copy(onlyDiscounted = v) }
+    fun setOnlyWithImage(v: Boolean) { _filters.value = _filters.value.copy(onlyWithImage = v) }
+    fun setMinRating(v: Float) { _filters.value = _filters.value.copy(minRating = v) }
+    fun setOnlyWithProducts(v: Boolean) { _filters.value = _filters.value.copy(onlyWithProducts = v) }
+
+    /** پاک کردن همه‌ی فیلترها؛ متن جست‌وجو و مرتب‌سازی دست نمی‌خورند. */
+    fun clearFilters() {
+        val cur = _filters.value
+        _filters.value = FilterState(query = cur.query, sort = cur.sort)
+    }
     fun setIgnoreCityFilter(v: Boolean) { _filters.value = _filters.value.copy(ignoreCityFilter = v) }
     fun resetFilters() {
         _filters.value = FilterState(sort = _filters.value.sort)

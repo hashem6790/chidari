@@ -10,6 +10,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -886,5 +887,158 @@ class LegacyServerTest {
         assertFalse(missingColumn("""{"message":"JWT expired"}"""))
         // خطایی که فقط نام ستون دیگری دارد
         assertFalse(missingColumn("""{"message":"column \"price\" does not exist"}"""))
+    }
+}
+
+/** فیلترهای پیشرفته‌ی پنجره فیلتر. */
+class AdvancedFiltersTest {
+
+    private val AF = ir.chidari.data.repo.AdvancedFilters
+
+    private fun offer(
+        price: Long = 100_000L,
+        discount: Int = 0,
+        images: String = "",
+        cover: String = "",
+        rating: Double = 0.0
+    ) = ir.chidari.data.repo.ProductOffer(
+        product = ir.chidari.data.local.ProductWithStore(
+            id = 1, storeId = 1, title = "کالا", category = "لبنیات", price = price,
+            unit = "عدد", description = "", specs = "", available = true,
+            discountPercent = discount, emoji = "📦", imageUri = cover, images = images,
+            storeName = "فروشگاه", storeCategory = "سوپرمارکت", province = "تهران",
+            city = "تهران", lat = 0.0, lng = 0.0, rating = rating, phone = "", address = ""
+        ),
+        distanceKm = null
+    )
+
+    private fun store(id: Long = 1, rating: Double = 0.0) =
+        ir.chidari.data.repo.StoreWithDistance(
+            store = ir.chidari.data.local.StoreEntity(
+                id = id, name = "ف", category = "سوپرمارکت", province = "تهران",
+                city = "تهران", lat = 0.0, lng = 0.0, rating = rating
+            ),
+            distanceKm = null
+        )
+
+    // ---------- قیمت ----------
+
+    @Test fun `no filter returns the very same list`() {
+        val items = listOf(offer(), offer())
+        assertSame("بدون فیلتر نباید فهرست تازه ساخته شود", items,
+            AF.filterOffers(items, 0, 0, false, false, 0f))
+    }
+
+    @Test fun `min price keeps only items at or above it`() {
+        val items = listOf(offer(price = 50_000), offer(price = 100_000), offer(price = 200_000))
+        val r = AF.filterOffers(items, 100_000, 0, false, false, 0f)
+        assertEquals(2, r.size)
+        assertTrue(r.all { it.product.finalPrice >= 100_000 })
+    }
+
+    @Test fun `max price keeps only items at or below it`() {
+        val items = listOf(offer(price = 50_000), offer(price = 600_000))
+        assertEquals(1, AF.filterOffers(items, 0, 100_000, false, false, 0f).size)
+    }
+
+    /** قیمت نهایی ملاک است، نه قیمت پیش از تخفیف. */
+    @Test fun `price range uses the discounted price`() {
+        // ۲۰۰ هزار با ۵۰٪ تخفیف = ۱۰۰ هزار
+        val items = listOf(offer(price = 200_000, discount = 50))
+        assertEquals("باید داخل سقف ۱۲۰ هزار بیفتد", 1,
+            AF.filterOffers(items, 0, 120_000, false, false, 0f).size)
+        assertEquals("و بیرون کف ۱۵۰ هزار بماند", 0,
+            AF.filterOffers(items, 150_000, 0, false, false, 0f).size)
+    }
+
+    // ---------- تخفیف، عکس، امتیاز ----------
+
+    @Test fun `only discounted drops items without a discount`() {
+        val items = listOf(offer(discount = 0), offer(discount = 15))
+        assertEquals(1, AF.filterOffers(items, 0, 0, true, false, 0f).size)
+    }
+
+    @Test fun `only with image accepts both the list and the legacy cover`() {
+        val withList = offer(images = "https://x/a.jpg")
+        val legacy = offer(cover = "https://x/b.jpg")
+        val none = offer()
+        val r = AF.filterOffers(listOf(withList, legacy, none), 0, 0, false, true, 0f)
+        assertEquals(2, r.size)
+    }
+
+    @Test fun `minimum rating drops low rated stores`() {
+        val items = listOf(offer(rating = 3.5), offer(rating = 4.0), offer(rating = 4.8))
+        assertEquals(2, AF.filterOffers(items, 0, 0, false, false, 4f).size)
+    }
+
+    @Test fun `filters combine with and not or`() {
+        val items = listOf(
+            offer(price = 90_000, discount = 10, images = "a.jpg", rating = 4.5),  // همه شرط‌ها
+            offer(price = 90_000, discount = 0, images = "a.jpg", rating = 4.5),   // بدون تخفیف
+            offer(price = 900_000, discount = 10, images = "a.jpg", rating = 4.5)  // گران
+        )
+        val r = AF.filterOffers(items, 0, 100_000, true, true, 4f)
+        assertEquals(1, r.size)
+    }
+
+    // ---------- فروشگاه‌ها ----------
+
+    @Test fun `store rating filter works`() {
+        val items = listOf(store(1, 3.0), store(2, 4.2))
+        val r = AF.filterStores(items, 4f, false) { 5 }
+        assertEquals(1, r.size)
+        assertEquals(2L, r.first().store.id)
+    }
+
+    @Test fun `only with products drops empty stores`() {
+        val counts = mapOf(1L to 0, 2L to 7)
+        val items = listOf(store(1), store(2))
+        val r = AF.filterStores(items, 0f, true) { counts[it] ?: 0 }
+        assertEquals(1, r.size)
+        assertEquals(2L, r.first().store.id)
+    }
+
+    @Test fun `good rating threshold is four`() {
+        assertEquals(4f, AF.GOOD_RATING)
+    }
+}
+
+/** شمارنده‌ی فیلترهای فعال روی آیکن. */
+class ActiveFilterCountTest {
+
+    @Test fun `a clean state counts zero`() {
+        assertEquals(0, ir.chidari.ui.vm.FilterState().activeCount)
+    }
+
+    /** متن جست‌وجو و مرتب‌سازی «فیلتر» حساب نمی‌شوند. */
+    @Test fun `query and sort are not counted as filters`() {
+        val f = ir.chidari.ui.vm.FilterState(
+            query = "شیر",
+            sort = ir.chidari.data.repo.SortMode.CHEAPEST
+        )
+        assertEquals(0, f.activeCount)
+    }
+
+    @Test fun `each active filter adds one`() {
+        val f = ir.chidari.ui.vm.FilterState(
+            productCategory = "لبنیات",
+            onlyDiscounted = true,
+            maxDistanceKm = 5f
+        )
+        assertEquals(3, f.activeCount)
+    }
+
+    @Test fun `price bounds count separately`() {
+        assertEquals(1, ir.chidari.ui.vm.FilterState(minPrice = 1000).activeCount)
+        assertEquals(2, ir.chidari.ui.vm.FilterState(minPrice = 1000, maxPrice = 5000).activeCount)
+    }
+
+    @Test fun `everything on counts them all`() {
+        val f = ir.chidari.ui.vm.FilterState(
+            storeCategory = "سوپرمارکت", productCategory = "لبنیات", onlyAvailable = true,
+            maxDistanceKm = 5f, ignoreCityFilter = true, minPrice = 1, maxPrice = 2,
+            onlyDiscounted = true, onlyWithImage = true, minRating = 4f, onlyWithProducts = true
+        )
+        assertEquals(11, f.activeCount)
     }
 }

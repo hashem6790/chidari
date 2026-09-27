@@ -63,6 +63,8 @@ fun ProductsScreen(
     onSortChange: (SortMode) -> Unit,
     onOnlyAvailableChange: (Boolean) -> Unit,
     onOpenFilters: () -> Unit,
+    /** تعداد فیلترهای فعال — روی آیکن نشان داده می‌شود. */
+    activeFilterCount: Int = 0,
     onProductClick: (Long) -> Unit,
     onCompareClick: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -99,8 +101,16 @@ fun ProductsScreen(
                     placeholder = { Text("نام محصول یا خدمت را بنویسید…") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     trailingIcon = {
-                        IconButton(onClick = onOpenFilters) {
-                            Icon(Icons.Filled.FilterList, contentDescription = "فیلترها")
+                        ir.chidari.ui.components.FilterBadge(activeFilterCount) {
+                            IconButton(onClick = onOpenFilters) {
+                                Icon(
+                                    Icons.Filled.FilterList,
+                                    contentDescription = "فیلترها",
+                                    tint = if (activeFilterCount > 0)
+                                        MaterialTheme.colorScheme.primary
+                                    else androidx.compose.ui.graphics.Color.Unspecified
+                                )
+                            }
                         }
                     },
                     singleLine = true,

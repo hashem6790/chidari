@@ -5,6 +5,7 @@ import ir.chidari.data.local.AppDatabase
 import ir.chidari.data.local.FavoriteEntity
 import ir.chidari.data.local.FollowEntity
 import ir.chidari.data.local.ProductEntity
+import ir.chidari.data.local.ProductImages
 import ir.chidari.data.local.ProductWithStore
 import ir.chidari.data.local.StoreEntity
 import ir.chidari.data.local.TitleStats
@@ -103,6 +104,10 @@ class AppRepository(private val db: AppDatabase) {
         productDao.search(province, city, category, query, if (onlyAvailable) 1 else 0)
 
     /** آمار تجمیعی «چند فروشگاه / ارزان‌ترین قیمت» برای هر عنوان کالا. */
+    /** نگاشت «شناسه فروشگاه → تعداد محصول» برای فیلتر «دارای محصول». */
+    fun observeProductCounts(): Flow<Map<Long, Int>> =
+        storeDao.observeCountsByStore().map { rows -> rows.associate { it.storeId to it.count } }
+
     fun observeOfferStats(province: String, city: String): Flow<List<TitleStats>> =
         productDao.observeOfferStats(province, city)
 
@@ -185,4 +190,78 @@ class AppRepository(private val db: AppDatabase) {
             SortMode.TOP_RATED -> items.sortedByDescending { it.product.rating }
             SortMode.NEWEST -> items.sortedByDescending { it.product.id }
         }
+}
+
+/**
+ * فیلترهای پیشرفته‌ای که **روی نتیجه‌ی موجود** اعمال می‌شوند.
+ *
+ * چرا در حافظه و نه در SQL: کوئری از قبل اجرا شده و نتیجه‌اش (حداکثر چند صد
+ * ردیف) در دست است. افزودن این شرط‌ها به کوئری یعنی چند پارامتر تازه، ایندکس
+ * تازه و مهاجرت — در حالی که فیلتر کردن یک فهرست چندصدتایی در حافظه چند
+ * میکروثانیه طول می‌کشد.
+ *
+ * توابع عمداً خالص‌اند (ورودی → خروجی، بدون وابستگی به اندروید) تا بدون
+ * شبیه‌ساز تست شوند.
+ */
+object AdvancedFilters {
+
+    /** آیا این محصول تصویری دارد؟ فهرست چندتایی یا عکس اصلی. */
+    fun hasImage(images: String, cover: String): Boolean =
+        ProductImages.of(images, cover).isNotEmpty()
+
+    /**
+     * فیلتر محصولات.
+     *
+     * قیمت با **قیمت نهایی** سنجیده می‌شود (بعد از تخفیف) — کاربری که سقف
+     * می‌گذارد، مبلغی را در نظر دارد که واقعاً می‌پردازد.
+     */
+    fun filterOffers(
+        items: List<ProductOffer>,
+        minPrice: Long,
+        maxPrice: Long,
+        onlyDiscounted: Boolean,
+        onlyWithImage: Boolean,
+        minRating: Float
+    ): List<ProductOffer> {
+        if (minPrice <= 0L && maxPrice <= 0L && !onlyDiscounted &&
+            !onlyWithImage && minRating <= 0f
+        ) return items
+
+        return items.filter { o ->
+            val p = o.product
+            val price = p.finalPrice
+            when {
+                minPrice > 0L && price < minPrice -> false
+                maxPrice > 0L && price > maxPrice -> false
+                onlyDiscounted && p.discountPercent <= 0 -> false
+                onlyWithImage && !hasImage(p.images, p.imageUri) -> false
+                minRating > 0f && p.rating < minRating -> false
+                else -> true
+            }
+        }
+    }
+
+    /**
+     * فیلتر فروشگاه‌ها.
+     *
+     * @param productCountOf تعداد محصولات هر فروشگاه؛ اگر شناسه‌ای نبود ۰.
+     */
+    fun filterStores(
+        items: List<StoreWithDistance>,
+        minRating: Float,
+        onlyWithProducts: Boolean,
+        productCountOf: (Long) -> Int
+    ): List<StoreWithDistance> {
+        if (minRating <= 0f && !onlyWithProducts) return items
+        return items.filter { s ->
+            when {
+                minRating > 0f && s.store.rating < minRating -> false
+                onlyWithProducts && productCountOf(s.store.id) <= 0 -> false
+                else -> true
+            }
+        }
+    }
+
+    /** آستانه‌ی «امتیاز خوب» — همان چیزی که در کلید تنظیمات نشان داده می‌شود. */
+    const val GOOD_RATING = 4f
 }

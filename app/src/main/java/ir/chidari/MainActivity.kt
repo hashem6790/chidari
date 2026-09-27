@@ -533,6 +533,7 @@ private fun ChiDariRoot() {
                             onOpenLocation = { navController.navigate(Routes.LOCATION) },
                             onUseGps = { vm.requestGpsLocation() },
                             onOpenFilters = { showFilters = true },
+                            activeFilterCount = filters.activeCount,
                             onStoreClick = { navController.navigate(Routes.store(it)) },
                             onToggleFavorite = { key -> requireAuth { vm.toggleFavorite(key) } },
                             syncStatus = syncStatus,
@@ -551,6 +552,7 @@ private fun ChiDariRoot() {
                             onSortChange = vm::setSort,
                             onOnlyAvailableChange = vm::setOnlyAvailable,
                             onOpenFilters = { showFilters = true },
+                            activeFilterCount = filters.activeCount,
                             onProductClick = { navController.navigate(Routes.product(it)) },
                             onCompareClick = { navController.navigate(Routes.compare(it)) },
                             onToggleFavorite = { key -> requireAuth { vm.toggleFavorite(key) } }
@@ -589,15 +591,30 @@ private fun ChiDariRoot() {
             }
 
             if (showFilters) {
+                // پنجره بر اساس تب فعال تغییر می‌کند: قیمت و تخفیف در تب
+                // فروشگاه‌ها معنایی ندارند
+                val productMode = currentTab == Tab.PRODUCTS
                 FiltersSheet(
                     filters = filters,
                     locationLabel = location.label,
                     hasCoordinates = location.hasCoordinates,
+                    productMode = productMode,
+                    categories = if (productMode) ir.chidari.data.Categories.allProductCategories
+                                 else ir.chidari.data.Categories.names,
+                    resultCount = if (productMode) products.size else stores.size,
                     onSortChange = vm::setSort,
+                    onCategoryChange = {
+                        if (productMode) vm.setProductCategory(it) else vm.setStoreCategory(it)
+                    },
                     onMaxDistanceChange = vm::setMaxDistance,
                     onOnlyAvailableChange = vm::setOnlyAvailable,
                     onIgnoreCityChange = vm::setIgnoreCityFilter,
-                    onReset = { vm.resetFilters() },
+                    onPriceRangeChange = vm::setPriceRange,
+                    onOnlyDiscountedChange = vm::setOnlyDiscounted,
+                    onOnlyWithImageChange = vm::setOnlyWithImage,
+                    onMinRatingChange = vm::setMinRating,
+                    onOnlyWithProductsChange = vm::setOnlyWithProducts,
+                    onReset = { vm.clearFilters() },
                     onDismiss = { showFilters = false }
                 )
             }
